@@ -73,9 +73,9 @@ struct UnsupportedDeviceView: View {
     private var message: String {
         switch verdict {
         case .noLiDAR:
-            "Wall Previewer uses the LiDAR scanner to measure where your wall ends and what is standing in front of it. Without it, paint would cover your furniture along with the wall."
+            "DryRun uses the LiDAR scanner to measure where your wall ends and what is standing in front of it. Without it, paint would cover your furniture along with the wall."
         case .noWorldTracking:
-            "Wall Previewer needs ARKit world tracking, which the Simulator cannot provide."
+            "DryRun needs ARKit world tracking, which the Simulator cannot provide."
         case .noMetal:
             "No Metal renderer is available on this device, so the wall cannot be drawn."
         case .supported:

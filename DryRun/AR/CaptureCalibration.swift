@@ -49,7 +49,7 @@ final class CaptureCalibration: ObservableObject {
     // Which path the illuminant came from is no longer on screen, so the log is the only
     // place it is recorded. Readable off `devicectl ... --console` when a colour looks wrong
     // and the question is whether the camera was locked.
-    private static let log = Logger(subsystem: "MAS.WallPreviewer", category: "calibration")
+    private static let log = Logger(subsystem: "com.MAS.dryrunpaint", category: "calibration")
 
     /// Attempts to take manual control of the capture device.
     ///

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct WallPreviewerApp: App {
+struct DryRunApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()

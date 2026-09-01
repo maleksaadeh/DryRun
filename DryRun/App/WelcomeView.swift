@@ -33,7 +33,7 @@ struct WelcomeView: View {
                     .padding(.bottom, 40)
 
                 VStack(spacing: 10) {
-                    Text("Wall Previewer")
+                    Text("DryRun")
                         .font(.system(size: 38, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
 
