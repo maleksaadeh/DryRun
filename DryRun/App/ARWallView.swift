@@ -40,7 +40,7 @@ struct ARWallView: UIViewRepresentable {
         // Tag the drawable as sRGB. `MTKView.colorspace` is macOS-only, but the underlying
         // layer exposes it on iOS. This is not cosmetic: an untagged layer gets no colour
         // matching, so sRGB values would be pushed unconverted to a Display P3 panel and read
-        // oversaturated — which would corrupt the very thing this demo is measuring.
+        // oversaturated — which would corrupt the very thing the app is measuring.
         (view.layer as? CAMetalLayer)?.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
         return view
     }

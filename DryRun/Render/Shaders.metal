@@ -315,7 +315,7 @@ fragment float4 compositeFragment(FullscreenOut in [[stage_in]],
     float3 tint = clamp(localChroma / max(meanChroma, 1e-4f), 0.75f, 1.33f);
 
     // High-frequency residual carries drywall texture, roller stipple and fine shadow. Dropping it
-    // makes the wall read as a flat CG plane, which is the usual tell in AR paint demos.
+    // makes the wall read as a flat CG plane, which is the usual tell in AR paint apps.
     //
     // It must be applied as a *relative* modulation, not an absolute offset. Reflectance is
     // multiplicative: the texture visible on a wall scales with that wall's own reflectance, so

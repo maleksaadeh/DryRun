@@ -49,9 +49,9 @@ final class ARSessionController: NSObject, ObservableObject {
     /// Minimum gap between rebuilds of the same anchor.
     ///
     /// Mesh anchors update continuously and each conversion is a linear scan over every face, on
-    /// the CPU, on the main thread. At ARKit's update rate that is real cost on a demo that already
-    /// caps work for thermal reasons — and openings do not move, so refreshing one twice a second
-    /// loses nothing.
+    /// the CPU, on the main thread. At ARKit's update rate that is real cost in an app that
+    /// already caps work for thermal reasons — and openings do not move, so refreshing one twice a
+    /// second loses nothing.
     private static let openingRebuildInterval: CFTimeInterval = 0.5
 
     var selectedWall: WallGeometry? {

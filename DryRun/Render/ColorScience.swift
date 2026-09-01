@@ -17,7 +17,7 @@ enum ColorScience {
     /// Decodes an sRGB-encoded component to linear light.
     ///
     /// Uses the exact piecewise IEC 61966-2-1 curve rather than a 2.2 power approximation —
-    /// the linear toe matters for dark walls, which is precisely the case the RFP calls out.
+    /// the linear toe matters for dark walls, which is precisely the case this app is built for.
     static func srgbToLinear(_ c: Float) -> Float {
         c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
     }
@@ -120,7 +120,8 @@ enum ColorScience {
     /// Builds the XYZ→XYZ matrix adapting colours from `source` white to `destination` white.
     ///
     /// This is what lets a paint chip specified under D65 be rendered as it would actually
-    /// appear under 2700K incandescent — the "warm artificial" acceptance condition.
+    /// appear under 2700K incandescent — a lamp-lit room at night, which is when most people
+    /// end up looking at a wall and wondering.
     ///
     /// - Parameters:
     ///   - source: XYZ white point the colour is currently relative to.

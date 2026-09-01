@@ -3,9 +3,9 @@ import SwiftUI
 /// Saved stills, browsed with the AR session stopped.
 ///
 /// Presented full screen rather than as a sheet, and the caller pauses the session for the
-/// duration. Both are deliberate: a paint demo runs long enough for thermal state to matter — the
-/// spike already caps inference cadence for the same reason — and leaving world tracking running
-/// behind an opaque screen spends camera, LiDAR and Neural Engine budget on pixels nobody sees.
+/// duration. Both are deliberate: a paint session runs long enough for thermal state to matter,
+/// and leaving world tracking running behind an opaque screen spends camera, LiDAR and Neural
+/// Engine budget on pixels nobody is looking at.
 struct GalleryView: View {
 
     let store: CaptureStore
@@ -113,7 +113,11 @@ struct CaptureDetailView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text(capture.paintName).font(.subheadline.weight(.semibold))
-                Text(capture.paintCode).font(.caption.monospaced()).foregroundStyle(.secondary)
+                // Empty for the built-in colours and optional on a custom one, so it is guarded:
+                // an empty `Text` still takes the HStack's spacing, leaving a double gap.
+                if !capture.paintCode.isEmpty {
+                    Text(capture.paintCode).font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
                 Text("LRV \(capture.paintLRV, specifier: "%.1f")")
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)

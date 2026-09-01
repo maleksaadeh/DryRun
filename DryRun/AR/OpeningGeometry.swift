@@ -4,17 +4,15 @@ import simd
 
 /// Door and window faces lifted out of a LiDAR scene-reconstruction mesh.
 ///
-/// The session already runs `.meshWithClassification`, which is the most expensive reconstruction
-/// mode because it classifies the reconstructed geometry as well as building it. Until now that
-/// classification was computed and discarded — the mesh was never read at all — so the app paid for
-/// semantics it did not use. This consumes them.
+/// The session already runs `.meshWithClassification`, the most expensive reconstruction mode,
+/// because it classifies the reconstructed geometry as well as building it. This is what consumes
+/// that classification — without it the app would be paying for semantics it never read.
 ///
-/// Scoped deliberately to *semantics*, never geometry. `DECISIONS.md` rejected `ARMeshAnchor` as a
-/// source of wall geometry, and rightly: it is coarse, it lags plane detection, and it would mean a
-/// second mesh path competing with the plane anchors. None of that applies to using it as a lookup
-/// for "is this bit of wall actually a door", which is a question plane anchors cannot answer at
-/// all — a closed door flush with the wall is invisible to the depth test, and is recorded in the
-/// README as a known limitation for exactly that reason.
+/// Scoped deliberately to *semantics*, never geometry. `ARMeshAnchor` is not used as a source of
+/// wall geometry: it is coarse, it lags plane detection, and it would mean a second mesh path
+/// competing with the plane anchors. None of that applies to using it as a lookup for "is this bit
+/// of wall actually a door", which is a question plane anchors cannot answer at all — a closed door
+/// flush with the wall sits *in* the plane, so the depth test cannot see it.
 struct OpeningGeometry {
 
     /// Faces classified as door or window. Everything else is discarded.

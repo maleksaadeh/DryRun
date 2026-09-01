@@ -256,7 +256,7 @@
 				DEVELOPMENT_TEAM = 9G22H45SC2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "DryRun";
+				INFOPLIST_KEY_CFBundleDisplayName = DryRun;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCameraUsageDescription = "The live camera is how DryRun shows a paint colour on your wall, under the light that is actually in the room.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -292,7 +292,7 @@
 				DEVELOPMENT_TEAM = 9G22H45SC2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "DryRun";
+				INFOPLIST_KEY_CFBundleDisplayName = DryRun;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCameraUsageDescription = "The live camera is how DryRun shows a paint colour on your wall, under the light that is actually in the room.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

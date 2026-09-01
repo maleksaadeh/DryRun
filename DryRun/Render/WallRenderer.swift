@@ -163,7 +163,7 @@ final class WallRenderer: NSObject {
     ///
     /// Capturing the drawable rather than re-rendering means the still is the same pixels that
     /// were on screen — same mask, same relight, same illuminant estimate. Re-rendering offscreen
-    /// would risk a still that disagrees with what the user judged, which in a colour spike is the
+    /// would risk a still that disagrees with what the user judged, which in a colour app is the
     /// one thing a saved image must not do.
     var onCapture: (@MainActor (CGImage?) -> Void)?
 

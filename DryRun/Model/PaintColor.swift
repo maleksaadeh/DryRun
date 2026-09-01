@@ -1,21 +1,18 @@
 import simd
 
-/// A manufacturer paint colour, stored as spectral-surrogate reflectance data.
+/// A paint colour, stored as spectral-surrogate reflectance data.
 ///
-/// Manufacturers publish two things per colour: an sRGB swatch value intended for screens, and
-/// an **LRV** (Light Reflectance Value) measured off the physical drawdown. These disagree more
-/// often than not — the swatch is chosen to look right in a browser, the LRV is instrument-
-/// measured. Where they conflict this type trusts the LRV, because the acceptance test in the
-/// RFP is against the physical sample, not against the website swatch.
-///
-/// - Note: The hex values below are approximations for demo purposes. Shipping this requires
-///   the licensed palette data — and ideally spectral measurements of the actual peel-and-stick
-///   stock, which would remove the metamerism error described in ``adaptedReflectance(under:)``.
+/// A colour is two numbers, not one. There is the sRGB swatch, which is chosen to look right on a
+/// screen, and there is the **LRV** (Light Reflectance Value), which for a real paint is measured
+/// off a physical drawdown with an instrument. For manufacturer colours these disagree more often
+/// than not, and where they conflict this type trusts the LRV — what the result gets judged
+/// against is paint on a wall, not a swatch on a website.
 struct PaintColor: Identifiable, Hashable, Codable, Sendable {
     let id: String
-    /// Manufacturer name, e.g. "Hale Navy".
+    /// Display name, e.g. "Terracotta".
     let name: String
-    /// Manufacturer code, e.g. "HC-154".
+    /// Manufacturer code where there is one, empty otherwise. Callers must handle the empty case:
+    /// the built-in colours have no code, and the custom-colour form makes it optional.
     let code: String
     /// Published sRGB swatch, used for hue and saturation only.
     let hex: UInt32
@@ -31,9 +28,12 @@ struct PaintColor: Identifiable, Hashable, Codable, Sendable {
     /// Linear-light reflectance in the sRGB primaries, with luminance rescaled to match ``lrv``.
     ///
     /// Takes the chromaticity implied by ``hex`` but renormalises so the colour's luminance
-    /// equals the measured LRV. This is what makes a light-over-dark render land correctly:
-    /// getting Chantilly Lace's *lightness* wrong by 8 LRV points is instantly visible against
-    /// the physical sample, whereas a small hue error is not.
+    /// equals ``lrv``. This is what makes a light-over-dark render land correctly: getting an
+    /// off-white's *lightness* wrong by 8 LRV points is instantly obvious next to the real thing,
+    /// whereas a small hue error is not.
+    ///
+    /// For the built-in colours the two already agree, so this scales by 1 — see ``PaintCatalog``.
+    /// It does real work for a manufacturer colour, and for anything a user enters by hand.
     var linearReflectance: SIMD3<Float> {
         let encoded = SIMD3<Float>(
             Float((hex >> 16) & 0xFF) / 255.0,
@@ -58,133 +58,108 @@ struct PaintColor: Identifiable, Hashable, Codable, Sendable {
     /// - Returns: XYZ of the painted surface under that illuminant.
     /// - Note: This is an RGB-space approximation of a spectral product. Under narrowband
     ///   sources (LED, sodium) it will drift, because two colours matching under D65 need not
-    ///   match under a spiky spectrum — metamerism. Spectral data for the sample stock is the
-    ///   only real fix, and is a stated risk rather than an oversight.
+    ///   match under a spiky spectrum — metamerism. Spectral data for the paint itself is the
+    ///   only real fix; this is a known limit rather than an oversight.
     func adaptedReflectance(under illuminant: SIMD3<Float>) -> SIMD3<Float> {
         let xyz = ColorScience.srgbToXYZ * linearReflectance
         return xyz * (illuminant / ColorScience.d65)
     }
 }
 
-/// Demo subset of the Benjamin Moore palette, chosen to exercise the RFP's stated edge cases.
+/// The colours the app ships with.
+///
+/// ## Why these are generic rather than a manufacturer's palette
+///
+/// Two reasons, and the second is the interesting one.
+///
+/// A real palette is a trademark. Shipping a manufacturer's colour names and codes in an app
+/// someone pays for makes a claim about their product, using their marks, without their agreement
+/// — a licensing question rather than an engineering one, and not worth carrying by accident.
+///
+/// More usefully: an invented colour has no external truth to be wrong about. For a real paint the
+/// LRV is a measurement, taken off a drawdown with an instrument, and the published swatch usually
+/// disagrees with it — which is the entire reason ``PaintColor/linearReflectance`` renormalises one
+/// against the other. For the colours below the LRV *is* the swatch's own luminance, computed from
+/// the hex rather than asserted about a can of paint that exists somewhere. The renormalisation
+/// becomes a no-op, and the pair is exact by construction instead of being an approximation
+/// nobody can check.
+///
+/// That property does not survive contact with a real palette. If a licensed one is added later,
+/// every LRV in it must come from the manufacturer, and the guidance below applies again in full.
+///
+/// ## The three
+///
+/// Chosen to span the LRV range rather than to coordinate with each other, because the spread is
+/// what exercises the renderer:
+///
+/// | Colour | LRV | What it exercises |
+/// |---|---|---|
+/// | Soft White | 86.4 | A light colour over a dark wall — the case an alpha blend cannot do |
+/// | Powder Blue | 53.2 | A mid-LRV colour, where shading detail is most visible |
+/// | Terracotta | 20.4 | A warm dark, which drives the spatially varying tint term hardest |
 ///
 /// ## Adding a colour
 ///
-/// One entry, appended to `warmEstimates` (or `published` if the LRV is a real measured figure):
+/// One entry appended to ``all``:
 ///
 /// ```swift
-/// PaintColor(id: "AF-290", name: "Marigold", code: "AF-290", hex: 0xE0A94F, lrv: 45.0),
+/// PaintColor(id: "sage", name: "Sage", code: "", hex: 0x9FAE93, lrv: 41.2),
 /// ```
 ///
-/// - `id` — any unique string. The brand code is the convention here.
-/// - `name`, `code` — shown under the swatch and stored with any capture taken.
-/// - `hex` — the published sRGB swatch, as an integer literal (`0xRRGGBB`).
-/// - `lrv` — Light Reflectance Value, 0–100, from the manufacturer's own data.
+/// - `id` — any unique string; a lowercase slug is the convention here.
+/// - `name`, `code` — shown in the UI and stored with any capture taken. `code` may be empty.
+/// - `hex` — the sRGB swatch, as an integer literal (`0xRRGGBB`).
+/// - `lrv` — Light Reflectance Value, 0–100.
 ///
-/// Files sit in a synchronized group, so nothing needs registering in the project; the swatch row
-/// picks the colour up on the next build.
+/// Files sit in a synchronized group, so nothing needs registering in the project. Note that the
+/// swatch row draws from ``featured`` — today that is simply ``all``, but if the two ever diverge,
+/// a colour added here stays invisible until it is listed there too.
+///
+/// For a new *invented* colour, set `lrv` to the hex's own luminance so it stays exact by
+/// construction. That is `dot(ColorScience.srgbToLinear(rgb), (0.2126729, 0.7151522, 0.0721750))`
+/// times 100 — the same expression ``PaintColor/linearReflectance`` uses.
 ///
 /// ### Why LRV is not optional
 ///
 /// `linearReflectance` keeps only the *chromaticity* of `hex` and renormalises its luminance to
 /// match `lrv`. The swatch decides the hue, LRV decides the lightness. Supplying a wrong LRV gives
 /// the right colour at the wrong lightness — the one error this renderer exists to avoid, since
-/// acceptance is judged against a physical sample.
+/// the result gets held up against a real painted surface.
 ///
-/// LRV is published on the manufacturer's colour page (Benjamin Moore and Sherwin-Williams both
-/// list it per colour) and printed on fan-deck chips.
+/// ### For a real manufacturer colour
 ///
-/// ### If you only have a hex
+/// The figure is on the manufacturer's page for that colour and printed on fan-deck chips. Do not
+/// substitute the swatch's own luminance, which is where the two diverge:
 ///
-/// How much that costs depends on the colour, measured against the `published` set above:
-///
-/// | Colour | Swatch luminance vs stated LRV |
+/// | Colour | Swatch luminance vs published LRV |
 /// |---|---|
-/// | Light / low-saturation (LRV > 50) | within ~2–5% — deriving from hex is fine |
+/// | Light / low-saturation (LRV > 50) | within ~2–5% — close enough to derive |
 /// | Dark / saturated (LRV < 25) | swatch runs **25–30% too dark** |
 ///
-/// Van Deusen Blue reads 10.0 from its swatch against a measured 12.94, and Hale Navy 6.97 against
-/// 8.85. So for a pale colour, `lrv` set to the swatch's own luminance is a fair approximation; for
-/// a deep or saturated one it will visibly misrepresent the paint, and the real figure is worth
-/// looking up before showing it to anyone.
-///
-/// Keep guessed values in `warmEstimates`, not `published`. The split is what lets a reader tell
-/// which colours can support an accuracy claim.
+/// A deep navy is the worst case: its published swatch typically reads a quarter darker than the
+/// paint measures, so deriving the LRV from it renders the wall visibly too dark. This is also why
+/// `CustomColorForm` makes the user type an LRV rather than offering to guess one.
 enum PaintCatalog {
 
-    /// Colours spanning the full LRV range. The pairing that matters for acceptance is applying
-    /// a high-LRV colour (Chantilly Lace, 92.2) over a dark existing wall — the case a naive
-    /// alpha blend cannot produce, since blending toward white over near-black yields grey.
-    static let all: [PaintColor] = published + warmEstimates
-
-    /// Entries whose LRV is a published figure.
+    /// The full catalogue.
     ///
-    /// Verifiable against the swatch: for the light neutrals here the sRGB luminance lands within
-    /// ~2% of the stated LRV, while Van Deusen Blue and Hale Navy sit ~28% *below* theirs. That gap
-    /// is why the renormalisation exists, and it is the reason a swatch-derived LRV is not an
-    /// acceptable substitute for a measured one.
-    static let published: [PaintColor] = [
-        PaintColor(id: "OC-65",    name: "Chantilly Lace",  code: "OC-65",    hex: 0xF4F4EF, lrv: 92.20),
-        PaintColor(id: "OC-117",   name: "Simply White",    code: "OC-117",   hex: 0xF3F0E4, lrv: 89.52),
-        PaintColor(id: "OC-17",    name: "White Dove",      code: "OC-17",    hex: 0xF0EDE1, lrv: 85.38),
-        PaintColor(id: "OC-20",    name: "Pale Oak",        code: "OC-20",    hex: 0xE0D9CF, lrv: 68.99),
-        PaintColor(id: "OC-52",    name: "Gray Owl",        code: "OC-52",    hex: 0xD3D5CE, lrv: 65.77),
-        PaintColor(id: "HC-172",   name: "Revere Pewter",   code: "HC-172",   hex: 0xCCC6B8, lrv: 55.51),
-        PaintColor(id: "2124-46",  name: "Wrought Iron",    code: "2124-46",  hex: 0x474B4C, lrv:  6.16),
-        PaintColor(id: "HC-166",   name: "Kendall Charcoal",code: "HC-166",   hex: 0x67655C, lrv: 13.34),
-        PaintColor(id: "HC-156",   name: "Van Deusen Blue", code: "HC-156",   hex: 0x4A5B6B, lrv: 12.94),
-        PaintColor(id: "HC-154",   name: "Hale Navy",       code: "HC-154",   hex: 0x434C52, lrv:  8.85)
+    /// The LRVs are each colour's own swatch luminance to two decimal places, so
+    /// ``PaintColor/linearReflectance`` scales by a factor of 1 and the rendered colour is exactly
+    /// what the hex describes, adapted to the room's light.
+    static let all: [PaintColor] = [
+        PaintColor(id: "soft-white",  name: "Soft White",  code: "", hex: 0xF2EFE7, lrv: 86.38),
+        PaintColor(id: "powder-blue", name: "Powder Blue", code: "", hex: 0xA9C5D6, lrv: 53.22),
+        PaintColor(id: "terracotta",  name: "Terracotta",  code: "", hex: 0xB26B45, lrv: 20.41)
     ]
 
-    /// Warm colours added to give the demo something other than neutrals to show.
+    /// The colours offered in the swatch row, in order.
     ///
-    /// **Their LRVs are estimates and must be replaced before any accuracy claim.** The hexes are
-    /// plausible representations and the LRVs are approximate published figures, neither verified
-    /// against a drawdown. That is the same caveat `CLAUDE.md` already records for the catalogue as
-    /// a whole, but it is worth restating here because these are the entries where it bites: the
-    /// error is small for the near-whites and largest for the saturated dark ones, exactly where
-    /// the measured data in `published` diverges most from its swatch.
-    ///
-    /// Chosen to span LRV rather than to look attractive together. A warm mid-LRV colour exercises
-    /// the spatially varying tint term — dividing local chromaticity by the wall's mean — far
-    /// harder than a neutral does, because an error in that term reads as a colour cast rather
-    /// than as a lightness shift, and mixed-illuminant rooms are where a paint visualiser gets
-    /// challenged.
-    ///
-    /// Deliberately not imported from the ARPaint catalogue: its 38 colours peak at 38% saturation
-    /// and its warm entries are 5–12% beiges, three of which (Pale Oak, White Dove, Revere Pewter)
-    /// are already above. There was no warmth there to borrow.
-    static let warmEstimates: [PaintColor] = [
-        PaintColor(id: "OC-12",    name: "Muslin",          code: "OC-12",    hex: 0xE9DFCC, lrv: 72.0),
-        PaintColor(id: "HC-81",    name: "Manchester Tan",  code: "HC-81",    hex: 0xD8CDB4, lrv: 64.0),
-        PaintColor(id: "HC-80",    name: "Bleeker Beige",   code: "HC-80",    hex: 0xC6B49A, lrv: 44.0),
-        PaintColor(id: "2175-40",  name: "Terra Cotta",     code: "2175-40",  hex: 0xC97F5E, lrv: 30.0),
-        PaintColor(id: "HC-50",    name: "Georgian Brick",  code: "HC-50",    hex: 0x9A5B45, lrv: 18.0),
-        PaintColor(id: "HC-70",    name: "Van Buren Brown", code: "HC-70",    hex: 0x6E4B3B, lrv: 11.0)
-    ]
+    /// Identical to ``all`` while the catalogue is three colours. It stays a separate property
+    /// because it is the seam that matters if a licensed palette is ever added: `all` would grow to
+    /// hundreds, and this would become the handful shown without scrolling, with the rest reachable
+    /// through a search field.
+    static let featured: [PaintColor] = all
 
-    /// The colours actually offered in the app, in swatch-row order.
-    ///
-    /// ``all`` stays the full catalogue — the colour science, the LRV renormalisation and the
-    /// documentation above are all still exercised by it, and the hidden entries cost nothing at
-    /// runtime — but the picker draws from this. Showing three keeps the row scannable without
-    /// scrolling, and these three are chosen to span the range the renderer is judged on rather
-    /// than to coordinate with each other:
-    ///
-    /// | Colour | LRV | What it exercises |
-    /// |---|---|---|
-    /// | White Dove | 85.4 | A light colour over a dark wall — the case an alpha blend cannot do |
-    /// | Van Deusen Blue | 12.9 | A dark, saturated colour whose swatch reads ~28% below its LRV |
-    /// | Georgian Brick | 18.0 | A warm mid-dark, which drives the spatially varying tint term |
-    ///
-    /// Resolved by id against ``all`` rather than restated, so there is one place a hex or an LRV
-    /// is written down and no chance of the two drifting apart. To change the offering, edit these
-    /// ids; to add a colour that is not in the catalogue yet, add it to ``published`` or
-    /// ``warmEstimates`` first.
-    static let featured: [PaintColor] = ["OC-17", "HC-156", "HC-50"]
-        .compactMap { id in all.first { $0.id == id } }
-
-    /// The colour selected at launch. `first` rather than `[0]` so a mistyped id above degrades to
-    /// a wrong default instead of a crash on startup.
-    static let `default` = featured.first ?? all[0]
+    /// The colour selected at launch.
+    static let `default` = all[0]
 }

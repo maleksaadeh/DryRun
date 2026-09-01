@@ -8,9 +8,9 @@ import UniformTypeIdentifiers
 /// On-disk library of saved stills.
 ///
 /// Plain files under Documents — a JSON index beside one JPEG and one thumbnail per capture —
-/// rather than SwiftData or Core Data. For a spike whose output is evidence, being able to pull the
-/// folder off the device with Finder and read the index in a text editor is worth more than a
-/// query language, and there is no relational shape here to model.
+/// rather than SwiftData or Core Data. Being able to pull the folder off the device with Finder
+/// and read the index in a text editor is worth more here than a query language, and there is no
+/// relational shape to model.
 @MainActor
 @Observable
 final class CaptureStore {
