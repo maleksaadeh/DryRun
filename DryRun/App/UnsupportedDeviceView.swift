@@ -48,9 +48,13 @@ struct UnsupportedDeviceView: View {
 
     // MARK: - Copy
     //
-    // `.supported` is unreachable — RootView routes it to the camera — but the switches stay
-    // exhaustive rather than defaulting, so adding a verdict later fails the build here instead
-    // of silently inheriting whichever branch `default` happened to point at.
+    // `.supported` and `.noLiDAR` are both unreachable now: RootView shows this screen only for
+    // verdicts where `isFatal` is true, and routes a missing scanner to a dismissable warning on
+    // the welcome screen instead. Their copy is kept rather than deleted because the routing rule
+    // is one line and could reasonably change back.
+    //
+    // The switches stay exhaustive rather than defaulting, so adding a verdict later fails the
+    // build here instead of silently inheriting whichever branch `default` happened to point at.
 
     private var icon: String {
         switch verdict {

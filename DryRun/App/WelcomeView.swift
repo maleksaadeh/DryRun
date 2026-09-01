@@ -12,8 +12,16 @@ import SwiftUI
 /// `onStart` fires. The system prompt then lands on a screen that has already explained why.
 struct WelcomeView: View {
 
+    /// Whether this iPhone has no LiDAR scanner, and the user should be told before they start.
+    var warnsAboutLiDAR = false
+
     /// Called when Get Started is tapped. The AR session starts only after this.
     let onStart: () -> Void
+
+    /// Driven from `onAppear` rather than shown unconditionally, so the alert fires once per
+    /// launch. This screen is only ever built at cold launch — `RootView` replaces it with the
+    /// camera and never comes back — so once per appearance and once per open are the same thing.
+    @State private var showingLiDARWarning = false
 
     /// Colours in the hero fan, front to back.
     ///
@@ -85,6 +93,18 @@ struct WelcomeView: View {
             .padding(.bottom, 24)
         }
         .statusBarHidden()
+        .onAppear { showingLiDARWarning = warnsAboutLiDAR }
+        .alert("This iPhone has no LiDAR", isPresented: $showingLiDARWarning) {
+            Button("Continue Anyway") {}
+        } message: {
+            Text("""
+                 DryRun uses the LiDAR scanner to tell your wall apart from whatever is in front \
+                 of it. Without it the colour still works, but paint will spread over furniture, \
+                 doorways and anything else in frame.
+
+                 LiDAR is only on iPhone Pro models, from iPhone 12 Pro onward.
+                 """)
+        }
     }
 
     // MARK: - Pieces
@@ -168,6 +188,10 @@ struct AppBackground: View {
     }
 }
 
-#Preview {
+#Preview("Welcome") {
     WelcomeView {}
+}
+
+#Preview("No LiDAR") {
+    WelcomeView(warnsAboutLiDAR: true) {}
 }

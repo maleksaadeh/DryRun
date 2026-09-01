@@ -33,18 +33,18 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            switch verdict {
-            case .supported:
-                if hasStarted {
-                    camera
-                } else {
-                    WelcomeView {
-                        withAnimation(.easeInOut(duration: 0.35)) { hasStarted = true }
-                    }
-                    .transition(.opacity)
-                }
-            case .noWorldTracking, .noLiDAR, .noMetal:
+            if verdict.isFatal {
                 UnsupportedDeviceView(verdict: verdict)
+            } else if hasStarted {
+                camera
+            } else {
+                // A device with no LiDAR still gets the whole app; it is warned on this screen
+                // and then left to decide. Only the verdicts that stop the app from starting at
+                // all are refused outright.
+                WelcomeView(warnsAboutLiDAR: verdict == .noLiDAR) {
+                    withAnimation(.easeInOut(duration: 0.35)) { hasStarted = true }
+                }
+                .transition(.opacity)
             }
         }
     }

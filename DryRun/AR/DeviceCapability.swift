@@ -1,26 +1,22 @@
 import ARKit
 import Metal
 
-/// Whether this iPhone can run the app at all, decided once at launch.
+/// What this iPhone can and cannot do, decided once at launch.
 ///
-/// The app requires the LiDAR scanner, and that requirement cannot be declared in `Info.plist`.
-/// `UIRequiredDeviceCapabilities` has no value for LiDAR, depth sensing or scene reconstruction —
-/// Apple's DTS answer to this exact question is "there is no UIRequiredDeviceCapabilities key that
-/// would restrict your app only to LiDAR devices", and their recommendation is a runtime check.
-/// `arkit`, which the target does declare, is satisfied by every iPhone since the XS.
+/// The app declares no `UIRequiredDeviceCapabilities` at all, so anyone can install it. That is
+/// partly forced and partly chosen. Forced, because there is no key for what actually matters:
+/// `UIRequiredDeviceCapabilities` has no value for LiDAR, depth sensing or scene reconstruction,
+/// and Apple's own answer to this question is "there is no UIRequiredDeviceCapabilities key that
+/// would restrict your app only to LiDAR devices". Chosen, because `arkit` — the nearest thing —
+/// is satisfied by every iPhone since the XS, so it excludes almost nobody while still being one
+/// more thing that can go wrong at submission.
 ///
-/// A `lidar` string in that array is a circulating suggestion that does not work. Nothing validates
-/// the key locally, so it builds and installs and silently filters nothing — which is worse than
-/// having no gate, because it looks like one.
-///
-/// Requiring depth rather than degrading without it is a deliberate reversal of how the renderer
-/// was originally written. Without it there is no way to tell wall from television, from door
-/// frame, from the person standing in front of it: an ARKit plane anchor is a filled polygon over
-/// the whole wall extent and never has holes cut in it. The plane-only fallback therefore does not
-/// produce a worse preview, it produces paint spread over the furniture.
+/// So the distinction is drawn here instead, and it is a distinction rather than a gate. Two of
+/// these verdicts mean the app cannot start; ``Verdict/noLiDAR`` means it starts and works less
+/// well, which is a judgement for the user to make once they have been told. See ``Verdict/isFatal``.
 enum DeviceCapability {
 
-    /// Why the device was refused, or that it was not.
+    /// What the device can do, or the first thing it cannot.
     enum Verdict: Equatable {
         case supported
         /// No world tracking: an older iPhone, or the simulator.
@@ -29,6 +25,23 @@ enum DeviceCapability {
         case noLiDAR
         /// No Metal device. Should be unreachable on hardware that cleared the other two.
         case noMetal
+
+        /// Whether the app is unable to start, as opposed to able to start and work badly.
+        ///
+        /// Only ``noLiDAR`` is survivable. Without depth the session still runs and the wall is
+        /// still found and repainted — but nothing can distinguish wall from television, from door
+        /// frame, from the person standing in front of it, because an ARKit plane anchor is a
+        /// filled polygon over the whole wall extent and never has holes cut in it. So paint
+        /// spreads over the furniture. That is worth a warning, not a locked door.
+        ///
+        /// The other two are not survivable: no world tracking means `ARSession.run` has nothing
+        /// to run, and no Metal device means the renderer cannot be built at all.
+        var isFatal: Bool {
+            switch self {
+            case .supported, .noLiDAR:       false
+            case .noWorldTracking, .noMetal: true
+            }
+        }
     }
 
     /// Evaluates the device once.
