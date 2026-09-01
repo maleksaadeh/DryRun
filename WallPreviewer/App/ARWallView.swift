@@ -13,6 +13,13 @@ struct ARWallView: UIViewRepresentable {
     let detailGain: Float
     let occluderBounds: OccluderBounds
     let zoom: Float
+    /// Whether the selected colour is withheld from the wall pending purchase.
+    ///
+    /// Enforced by drawing no walls, which routes through the same path as having none selected:
+    /// the composite passes the camera through untouched. Withholding it here rather than in the
+    /// UI is what makes the gate real — every other approach leaves the paint reaching the
+    /// renderer and merely hides it.
+    let isPaintLocked: Bool
     /// Bumped to request a still. The renderer services each distinct value once.
     let captureToken: Int
     /// Main-actor isolated, matching `WallRenderer.onCapture`: that isolation is what makes the
@@ -40,6 +47,7 @@ struct ARWallView: UIViewRepresentable {
 
     func updateUIView(_ view: MTKView, context: Context) {
         context.coordinator.paint = paint
+        context.coordinator.isPaintLocked = isPaintLocked
         context.coordinator.renderer.detailGain = detailGain
         context.coordinator.renderer.occluderBounds = occluderBounds
         context.coordinator.renderer.zoom = zoom
@@ -55,6 +63,7 @@ struct ARWallView: UIViewRepresentable {
         let calibration: CaptureCalibration
         let renderer: WallRenderer
         var paint: PaintColor = PaintCatalog.default
+        var isPaintLocked = false
 
         init(controller: ARSessionController, calibration: CaptureCalibration, renderer: WallRenderer) {
             self.controller = controller
@@ -74,7 +83,7 @@ struct ARWallView: UIViewRepresentable {
 
             let orientation = view.window?.windowScene?.interfaceOrientation ?? .portrait
             renderer.draw(frame: frame,
-                          walls: controller.selectedWallGroup,
+                          walls: isPaintLocked ? [] : controller.selectedWallGroup,
                           openings: controller.excludesOpenings
                               ? Array(controller.openings.values)
                               : [],

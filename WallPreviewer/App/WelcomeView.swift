@@ -15,10 +15,12 @@ struct WelcomeView: View {
     /// Called when Get Started is tapped. The AR session starts only after this.
     let onStart: () -> Void
 
-    /// Colours in the hero fan, front to back. Chosen to span the catalogue's LRV range rather
-    /// than to coordinate — the spread is the point, since it is what the renderer is for.
-    private static let fan = ["HC-154", "HC-50", "HC-80", "OC-20", "OC-65"]
-        .compactMap { id in PaintCatalog.all.first { $0.id == id } }
+    /// Colours in the hero fan, front to back.
+    ///
+    /// The offered palette itself rather than a decorative selection, so the welcome screen cannot
+    /// advertise a colour the picker does not have. ``PaintCatalog/featured`` already spans the
+    /// LRV range deliberately, which is the spread this wants anyway.
+    private static let fan = PaintCatalog.featured
 
     var body: some View {
         ZStack {
@@ -50,7 +52,7 @@ struct WelcomeView: View {
                          detail: "Pan slowly until it's found, then tap to select it.")
                     step(icon: "paintpalette.fill",
                          title: "Pick a colour",
-                         detail: "Sixteen colours, each with its published light reflectance.")
+                         detail: "Each one carries its published light reflectance, so it lands at the right lightness.")
                     step(icon: "sun.max.fill",
                          title: "Keep the shadows",
                          detail: "Your wall's shading and texture carry through, so a light colour still reads light over a dark wall.")
@@ -91,10 +93,17 @@ struct WelcomeView: View {
     ///
     /// Drawn back to front with a rotation and a rising offset, so the row reads as physical stock
     /// rather than as a colour legend.
+    ///
+    /// Laid out from each chip's distance to the centre of the row rather than from its index, so
+    /// the fan stays symmetric whatever ``PaintCatalog/featured`` holds. `spread` is the only knob
+    /// worth touching: below about 30 the middle chips disappear behind their neighbours.
     private var hero: some View {
-        ZStack {
+        let centre = Double(Self.fan.count - 1) / 2
+        let spread: Double = 36
+
+        return ZStack {
             ForEach(Array(Self.fan.enumerated().reversed()), id: \.element.id) { index, colour in
-                let position = Double(index)
+                let fromCentre = Double(index) - centre
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(Color(paint: colour))
                     .frame(width: 96, height: 128)
@@ -103,8 +112,8 @@ struct WelcomeView: View {
                             .strokeBorder(.white.opacity(0.14), lineWidth: 1)
                     }
                     .shadow(color: .black.opacity(0.45), radius: 14, x: 0, y: 8)
-                    .rotationEffect(.degrees(position * 7 - 14))
-                    .offset(x: position * 30 - 60, y: abs(position - 2) * 7)
+                    .rotationEffect(.degrees(fromCentre * 7))
+                    .offset(x: fromCentre * spread, y: abs(fromCentre) * 7)
             }
         }
         .frame(height: 150)
@@ -156,20 +165,6 @@ struct AppBackground: View {
             )
         }
         .ignoresSafeArea()
-    }
-}
-
-extension Color {
-    /// The paint's published swatch, for UI chrome only.
-    ///
-    /// This is *not* how the colour reaches the wall. The renderer takes the chromaticity from
-    /// this hex, rescales its luminance to the measured LRV, and adapts it to the scene
-    /// illuminant — see ``PaintColor/linearReflectance``. A swatch shown here and the same paint
-    /// shown on a wall are therefore expected to differ, and the wall is the accurate one.
-    init(paint: PaintColor) {
-        self.init(red: Double((paint.hex >> 16) & 0xFF) / 255,
-                  green: Double((paint.hex >> 8) & 0xFF) / 255,
-                  blue: Double(paint.hex & 0xFF) / 255)
     }
 }
 

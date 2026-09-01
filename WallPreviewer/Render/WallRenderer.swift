@@ -118,8 +118,17 @@ final class WallRenderer: NSObject {
     private let compositePipeline: MTLRenderPipelineState
     private let textureCache: CVMetalTextureCache
 
-    private let blur: MPSImageGaussianBlur
-    private let meanReduce: MPSImageStatisticsMean
+    /// Blur and mean reduction, absent where Metal Performance Shaders is unavailable.
+    ///
+    /// Optional not out of caution about hardware — every iPhone that clears ``DeviceCapability``
+    /// has MPS — but because the iOS Simulator on an Intel Mac does not. `MPSSupportsMTLDevice`
+    /// returns false there and constructing a kernel anyway traps inside MPS, which would kill the
+    /// app in `init` before the simulator preview drew anything.
+    ///
+    /// Costs the device build nothing: the encode site below sits inside the `!walls.isEmpty`
+    /// branch, and the simulator never gets there because it has no ARFrames to begin with.
+    private let blur: MPSImageGaussianBlur?
+    private let meanReduce: MPSImageStatisticsMean?
 
     private var maskTexture: MTLTexture?
     private var blurTexture: MTLTexture?
@@ -219,11 +228,17 @@ final class WallRenderer: NSObject {
             return nil
         }
 
-        // Radius is in pixels at mask resolution. Large enough to erase wall texture and keep
-        // only the illumination gradient; small enough that a real shadow edge survives.
-        blur = MPSImageGaussianBlur(device: device, sigma: 24)
-        blur.edgeMode = .clamp
-        meanReduce = MPSImageStatisticsMean(device: device)
+        if MPSSupportsMTLDevice(device) {
+            // Radius is in pixels at mask resolution. Large enough to erase wall texture and keep
+            // only the illumination gradient; small enough that a real shadow edge survives.
+            let gaussian = MPSImageGaussianBlur(device: device, sigma: 24)
+            gaussian.edgeMode = .clamp
+            blur = gaussian
+            meanReduce = MPSImageStatisticsMean(device: device)
+        } else {
+            blur = nil
+            meanReduce = nil
+        }
 
         super.init()
 
@@ -404,12 +419,14 @@ final class WallRenderer: NSObject {
             encoder.endEncoding()
 
             // --- Pass B: normalised-convolution blur, then mean for shading normalisation ---
-            blur.encode(commandBuffer: commandBuffer,
-                        sourceTexture: maskTexture,
-                        destinationTexture: blurTexture)
-            meanReduce.encode(commandBuffer: commandBuffer,
-                              sourceTexture: maskTexture,
-                              destinationTexture: meanTexture)
+            if let blur, let meanReduce {
+                blur.encode(commandBuffer: commandBuffer,
+                            sourceTexture: maskTexture,
+                            destinationTexture: blurTexture)
+                meanReduce.encode(commandBuffer: commandBuffer,
+                                  sourceTexture: maskTexture,
+                                  destinationTexture: meanTexture)
+            }
         }
 
         // --- Pass C: composite ---

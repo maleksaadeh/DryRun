@@ -37,6 +37,19 @@ enum DeviceCapability {
     /// world tracking is tested first — otherwise a simulator run would be told it needs a Pro
     /// iPhone, which is true but not the useful half of the problem.
     static func evaluate() -> Verdict {
+        #if targetEnvironment(simulator)
+        // Let the simulator through so the screens can be laid out and reviewed without a device.
+        //
+        // It can never satisfy the real requirement — no camera, no world tracking, no LiDAR — so
+        // what you get is the control surface over a black drawable: the render loop skips any
+        // frame it does not have, and ARKit is never started at all (see `ARSessionController`).
+        // Colours, zoom, the swatch row and the gallery are all live; the wall is not.
+        //
+        // Scoped to the simulator rather than to DEBUG on purpose. Simulator code is not present
+        // in a device build at all, so this bypass cannot reach a shipped app or a non-Pro iPhone
+        // even by accident, which a `#if DEBUG` gate could.
+        return .supported
+        #else
         guard ARWorldTrackingConfiguration.isSupported else { return .noWorldTracking }
 
         // Both halves of the LiDAR dependency, tested separately because they are separate
@@ -52,5 +65,6 @@ enum DeviceCapability {
         guard MTLCreateSystemDefaultDevice() != nil else { return .noMetal }
 
         return .supported
+        #endif
     }
 }

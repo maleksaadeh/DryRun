@@ -11,7 +11,7 @@ import simd
 /// - Note: The hex values below are approximations for demo purposes. Shipping this requires
 ///   the licensed palette data — and ideally spectral measurements of the actual peel-and-stick
 ///   stock, which would remove the metamerism error described in ``adaptedReflectance(under:)``.
-struct PaintColor: Identifiable, Hashable, Sendable {
+struct PaintColor: Identifiable, Hashable, Codable, Sendable {
     let id: String
     /// Manufacturer name, e.g. "Hale Navy".
     let name: String
@@ -21,6 +21,12 @@ struct PaintColor: Identifiable, Hashable, Sendable {
     let hex: UInt32
     /// Published Light Reflectance Value, 0–100. Treated as authoritative for lightness.
     let lrv: Float
+    /// Whether the user entered this colour rather than it shipping in ``PaintCatalog``.
+    ///
+    /// Drives the paid gate: a custom colour is stored, listed and editable for everyone, but
+    /// reaches the renderer only when ``Entitlements/isUnlocked``. Catalogue colours are never
+    /// gated. Defaulted so every existing `PaintCatalog` entry constructs unchanged.
+    var isCustom = false
 
     /// Linear-light reflectance in the sRGB primaries, with luminance rescaled to match ``lrv``.
     ///
@@ -157,5 +163,28 @@ enum PaintCatalog {
         PaintColor(id: "HC-70",    name: "Van Buren Brown", code: "HC-70",    hex: 0x6E4B3B, lrv: 11.0)
     ]
 
-    static let `default` = all[0]
+    /// The colours actually offered in the app, in swatch-row order.
+    ///
+    /// ``all`` stays the full catalogue — the colour science, the LRV renormalisation and the
+    /// documentation above are all still exercised by it, and the hidden entries cost nothing at
+    /// runtime — but the picker draws from this. Showing three keeps the row scannable without
+    /// scrolling, and these three are chosen to span the range the renderer is judged on rather
+    /// than to coordinate with each other:
+    ///
+    /// | Colour | LRV | What it exercises |
+    /// |---|---|---|
+    /// | White Dove | 85.4 | A light colour over a dark wall — the case an alpha blend cannot do |
+    /// | Van Deusen Blue | 12.9 | A dark, saturated colour whose swatch reads ~28% below its LRV |
+    /// | Georgian Brick | 18.0 | A warm mid-dark, which drives the spatially varying tint term |
+    ///
+    /// Resolved by id against ``all`` rather than restated, so there is one place a hex or an LRV
+    /// is written down and no chance of the two drifting apart. To change the offering, edit these
+    /// ids; to add a colour that is not in the catalogue yet, add it to ``published`` or
+    /// ``warmEstimates`` first.
+    static let featured: [PaintColor] = ["OC-17", "HC-156", "HC-50"]
+        .compactMap { id in all.first { $0.id == id } }
+
+    /// The colour selected at launch. `first` rather than `[0]` so a mistyped id above degrades to
+    /// a wrong default instead of a crash on startup.
+    static let `default` = featured.first ?? all[0]
 }

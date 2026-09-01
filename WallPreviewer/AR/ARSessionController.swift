@@ -111,12 +111,23 @@ final class ARSessionController: NSObject, ObservableObject {
     }
 
     func start() {
+        #if targetEnvironment(simulator)
+        // No session at all on the simulator. `ARWorldTrackingConfiguration` is unsupported there,
+        // and running one raises rather than failing quietly, so there is nothing to guard against
+        // afterwards — the only safe thing is not to start. `DeviceCapability` still lets the
+        // simulator reach this screen so the controls can be laid out; the render loop draws
+        // nothing because `session.currentFrame` stays nil, which is the black behind them.
+        status = "Simulator preview — no camera or wall tracking. The controls are live."
+        return
+        #else
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.vertical]
         configuration.environmentTexturing = .automatic
 
-        // Scene reconstruction sharpens plane extents and, more importantly, gives per-pixel depth
-        // for occlusion. Both are optional: the app degrades to plane-only on non-LiDAR hardware.
+        // Scene reconstruction sharpens plane extents and, more importantly, supplies the
+        // per-pixel depth the occlusion test needs. `DeviceCapability` has already established
+        // both are available; these stay guarded because setting an unsupported option on the
+        // configuration raises rather than being ignored.
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
             configuration.sceneReconstruction = .meshWithClassification
         }
@@ -137,6 +148,7 @@ final class ARSessionController: NSObject, ObservableObject {
         }
 
         session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+        #endif
     }
 
     func pause() {

@@ -22,6 +22,11 @@ struct ContentView: View {
     @State private var zoom: Float = 1
     @State private var zoomAtGestureStart: Float = 1
     @State private var store = CaptureStore()
+    @State private var customColours = CustomPaintStore()
+    @State private var entitlements = Entitlements()
+    @State private var isAddingColour = false
+    /// The custom colour being edited, driving the form sheet.
+    @State private var editingColour: PaintColor?
     @State private var showsGallery = false
     /// Bumped once per shutter press; the renderer captures one frame per distinct value.
     @State private var captureToken = 0
@@ -49,6 +54,7 @@ struct ContentView: View {
                        detailGain: detailGain,
                        occluderBounds: occluderBounds,
                        zoom: zoom,
+                       isPaintLocked: isPaintLocked,
                        captureToken: captureToken,
                        onCapture: handleCapture)
                 .ignoresSafeArea()
@@ -126,6 +132,19 @@ struct ContentView: View {
         .fullScreenCover(isPresented: $showsGallery) {
             GalleryView(store: store)
         }
+        .sheet(isPresented: $isAddingColour) {
+            CustomColorForm(store: customColours)
+        }
+        .sheet(item: $editingColour) { colour in
+            CustomColorForm(existing: colour, store: customColours)
+        }
+        .onChange(of: customColours.colours) { _, colours in
+            // A deleted colour cannot be left on the wall: it is gone from the swatch row, so
+            // there would be no control left that could change away from it.
+            if paint.isCustom, !colours.contains(where: { $0.id == paint.id }) {
+                paint = PaintCatalog.default
+            }
+        }
         .onChange(of: showsGallery) { _, isShowing in
             // Nothing to render behind an opaque screen, and a paint session runs long enough for
             // thermal headroom to be worth protecting.
@@ -149,10 +168,20 @@ struct ContentView: View {
     ///
     /// The tracking note outranks it because that one names a condition the *room* has to fix.
     private var prompt: String? {
+        // Outranks everything: it is the one message that explains something the user can act on
+        // immediately, and without it a locked colour looks like a broken renderer.
+        if isPaintLocked { return "Unlock custom colours to see this one on your wall." }
         if let note = controller.trackingNote { return note }
         if controller.selectedWallID == nil { return controller.status }
         return nil
     }
+
+    /// Whether the selected colour is withheld from the wall pending purchase.
+    ///
+    /// Only ever true for a user-entered colour. The catalogue is never gated — someone who has
+    /// paid nothing still gets a working paint visualiser, and what they are buying is the ability
+    /// to bring their own colours to it.
+    private var isPaintLocked: Bool { paint.isCustom && !entitlements.isUnlocked }
 
     /// Upper zoom limit.
     ///
@@ -293,8 +322,16 @@ struct ContentView: View {
     /// Asks the renderer for the next composited frame and files it with the paint that produced it.
     private func capture() {
         guard !isCapturing else { return }
+        #if targetEnvironment(simulator)
+        // There is no ARFrame, so the renderer never reaches the code that services the token,
+        // and the completion that would clear `isCapturing` never arrives. Left alone that
+        // latches the flag on the first press and disables the shutter for the rest of the
+        // session — so refuse the request here rather than arming one that cannot complete.
+        show("No camera in the Simulator.")
+        #else
         isCapturing = true
         captureToken += 1
+        #endif
     }
 
     /// Files the frame the renderer handed back.
@@ -333,33 +370,76 @@ struct ContentView: View {
     /// the code: a television on a slim mount sits ~3 cm off the plaster, one on an articulating
     /// arm far more, and the LiDAR noise floor that sets the lower limit varies with range.
     private var surfaceControl: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Surface depth")
-                    .font(.caption.weight(.medium))
-                Spacer()
-                Text(surfaceDepthLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Slider(value: $occluderBounds.band,
-                   in: OccluderBounds.range) {
-                Text("Surface depth")
-            }
-            .tint(.white)
+        VStack(alignment: .leading, spacing: 9) {
+            selectedPaint
 
-            // A/B switch rather than a setting. Mesh classification is coarse, and a false positive
-            // subtracts paint from real wall — so the way to judge it is to watch the difference on
-            // an actual doorway, not to trust it by default and hope.
-            Toggle(isOn: $controller.excludesOpenings) {
-                Text("Exclude doors & windows")
-                    .font(.caption.weight(.medium))
+            Divider().overlay(.white.opacity(0.15))
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Surface depth")
+                        .font(.caption.weight(.medium))
+                    Spacer()
+                    Text(surfaceDepthLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $occluderBounds.band,
+                       in: OccluderBounds.range) {
+                    Text("Surface depth")
+                }
+                .tint(.white)
+
+                // A/B switch rather than a setting. Mesh classification is coarse, and a false
+                // positive subtracts paint from real wall — so the way to judge it is to watch the
+                // difference on an actual doorway, not to trust it by default and hope.
+                Toggle(isOn: $controller.excludesOpenings) {
+                    Text("Exclude doors & windows")
+                        .font(.caption.weight(.medium))
+                }
+                .toggleStyle(.switch)
+                .tint(.white)
             }
-            .toggleStyle(.switch)
-            .tint(.white)
         }
         .padding(10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Names the colour currently on the wall.
+    ///
+    /// The swatch row already marks the selection with a border, but that is a weak signal at the
+    /// moment it matters most: judging a colour means looking at the wall, not at a 58pt chip, and
+    /// two dark colours a few LRV points apart are hard to tell apart down there in a dim room.
+    /// The name is also the thing you write down or search for, so it is worth stating in full.
+    private var selectedPaint: some View {
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color(paint: paint))
+                .frame(width: 22, height: 22)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(.white.opacity(0.3), lineWidth: 1)
+                }
+            Text(paint.name)
+                .font(.subheadline.weight(.semibold))
+            // Optional on a custom colour: a code is the manufacturer's, and someone matching a
+            // chip they were handed may not have one.
+            if !paint.code.isEmpty {
+                Text(paint.code)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            if isPaintLocked {
+                Image(systemName: "lock.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Locked")
+            }
+            Spacer(minLength: 4)
+            Text("LRV \(paint.lrv, specifier: "%.1f")")
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+        }
     }
 
     /// Plain-language stand-in for the slider's raw metres.
@@ -376,38 +456,108 @@ struct ContentView: View {
         }
     }
 
+    /// Catalogue colours first, then the user's own.
+    ///
+    /// The three catalogue entries stay pinned at the front deliberately: their LRVs are published
+    /// figures, so they are the reference a hand-entered colour gets judged against. Burying them
+    /// under a long list of custom colours would remove the only calibrated thing on screen.
+    private var palette: [PaintColor] { PaintCatalog.featured + customColours.colours }
+
     private var swatches: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
-                ForEach(PaintCatalog.all) { colour in
-                    Button { paint = colour } label: {
-                        VStack(spacing: 4) {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(
-                                    red: Double((colour.hex >> 16) & 0xFF) / 255,
-                                    green: Double((colour.hex >> 8) & 0xFF) / 255,
-                                    blue: Double(colour.hex & 0xFF) / 255))
-                                .frame(width: 58, height: 58)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .strokeBorder(paint == colour ? Color.accentColor : .white.opacity(0.35),
-                                                      lineWidth: paint == colour ? 3 : 1)
-                                )
-                            Text(colour.name)
-                                .font(.system(size: 9))
-                                .lineLimit(1)
-                            Text("LRV \(colour.lrv, specifier: "%.1f")")
-                                .font(.system(size: 8).monospaced())
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(width: 64)
-                    }
-                    .buttonStyle(.plain)
+                ForEach(palette) { colour in
+                    swatch(for: colour)
                 }
+                addSwatch
             }
             .padding(.vertical, 6)
         }
         .padding(.horizontal, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// One chip. Custom colours additionally carry a long-press menu to edit or delete them.
+    ///
+    /// The menu is applied only to those, rather than to every chip with an empty body for the
+    /// catalogue ones: a long press that opens a menu with nothing in it reads as a bug.
+    @ViewBuilder
+    private func swatch(for colour: PaintColor) -> some View {
+        let button = Button { paint = colour } label: { chip(for: colour) }
+            .buttonStyle(.plain)
+
+        if colour.isCustom {
+            button.contextMenu {
+                Button { editingColour = colour } label: { Label("Edit", systemImage: "pencil") }
+                Button(role: .destructive) {
+                    customColours.delete(colour)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        } else {
+            button
+        }
+    }
+
+    private func chip(for colour: PaintColor) -> some View {
+        VStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(paint: colour))
+                .frame(width: 58, height: 58)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(paint == colour ? Color.accentColor : .white.opacity(0.35),
+                                      lineWidth: paint == colour ? 3 : 1)
+                )
+                .overlay(alignment: .topTrailing) {
+                    // Marks what is withheld, on the chip itself, so the reason the wall stayed
+                    // bare is visible at the moment of choosing rather than only after.
+                    if colour.isCustom, !entitlements.isUnlocked {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(3)
+                            .background(.black.opacity(0.55), in: Circle())
+                            .padding(3)
+                    }
+                }
+            Text(colour.name)
+                .font(.system(size: 9))
+                .lineLimit(1)
+            Text("LRV \(colour.lrv, specifier: "%.1f")")
+                .font(.system(size: 8).monospaced())
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: 64)
+    }
+
+    /// Opens the form.
+    ///
+    /// Deliberately never gated. Someone who has not paid can still enter a colour, check the hex
+    /// and LRV they typed, and correct them — the wall is what they are buying, so the wall is the
+    /// only thing withheld. If that decision is ever reversed, this button is the single place a
+    /// paywall sheet would be presented from instead.
+    private var addSwatch: some View {
+        Button { isAddingColour = true } label: {
+            VStack(spacing: 4) {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(.white.opacity(0.45),
+                                  style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    .frame(width: 58, height: 58)
+                    .overlay {
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .medium))
+                    }
+                Text("Add")
+                    .font(.system(size: 9))
+                Text("custom")
+                    .font(.system(size: 8).monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 64)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add a custom colour")
     }
 }
