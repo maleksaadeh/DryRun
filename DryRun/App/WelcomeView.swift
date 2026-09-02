@@ -22,6 +22,7 @@ struct WelcomeView: View {
     /// launch. This screen is only ever built at cold launch — `RootView` replaces it with the
     /// camera and never comes back — so once per appearance and once per open are the same thing.
     @State private var showingLiDARWarning = false
+    @State private var showingHowItWorks = false
 
     /// Colours in the hero fan, front to back.
     ///
@@ -45,7 +46,7 @@ struct WelcomeView: View {
                         .font(.system(size: 38, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
 
-                    Text("See a paint colour on your own wall,\nunder your own light.")
+                    Text("See a paint color on your own wall,\nunder your own light.")
                         .font(.system(size: 16))
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white.opacity(0.65))
@@ -59,11 +60,11 @@ struct WelcomeView: View {
                          title: "Point at a wall",
                          detail: "Pan slowly until it's found, then tap to select it.")
                     step(icon: "paintpalette.fill",
-                         title: "Pick a colour",
+                         title: "Pick a color",
                          detail: "Each one carries its published light reflectance, so it lands at the right lightness.")
                     step(icon: "sun.max.fill",
                          title: "Keep the shadows",
-                         detail: "Your wall's shading and texture carry through, so a light colour still reads light over a dark wall.")
+                         detail: "Your wall's shading and texture carry through, so a light color still reads light over a dark wall.")
                 }
                 .frame(maxWidth: 380)
                 .padding(.horizontal, 8)
@@ -81,7 +82,7 @@ struct WelcomeView: View {
                     }
                     .buttonStyle(.plain)
 
-                    Text("Uses the camera. Works best with a corner, some trim, or an outlet in frame.")
+                    Text("Uses the camera.")
                         .font(.caption2)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white.opacity(0.4))
@@ -92,7 +93,25 @@ struct WelcomeView: View {
             .padding(.horizontal, 28)
             .padding(.bottom, 24)
         }
+        // Overlaid rather than placed in the stack so it pins to the corner regardless of how the
+        // content below reflows on a short screen.
+        .overlay(alignment: .topTrailing) {
+            Button { showingHowItWorks = true } label: {
+                Image(systemName: "questionmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 40, height: 40)
+                    .background(.white.opacity(0.10), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("How it works")
+            .padding(.top, 10)
+            .padding(.trailing, 18)
+        }
         .statusBarHidden()
+        .sheet(isPresented: $showingHowItWorks) {
+            HowItWorksView()
+        }
         .onAppear { showingLiDARWarning = warnsAboutLiDAR }
         .alert("This iPhone has no LiDAR", isPresented: $showingLiDARWarning) {
             Button("Continue Anyway") {}
