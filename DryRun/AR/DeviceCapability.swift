@@ -1,22 +1,10 @@
 import ARKit
 import Metal
 
-/// What this iPhone can and cannot do, decided once at launch.
-///
-/// The app declares no `UIRequiredDeviceCapabilities` at all, so anyone can install it. That is
-/// partly forced and partly chosen. Forced, because there is no key for what actually matters:
-/// `UIRequiredDeviceCapabilities` has no value for LiDAR, depth sensing or scene reconstruction,
-/// and Apple's own answer to this question is "there is no UIRequiredDeviceCapabilities key that
-/// would restrict your app only to LiDAR devices". Chosen, because `arkit` — the nearest thing —
-/// is satisfied by every iPhone since the XS, so it excludes almost nobody while still being one
-/// more thing that can go wrong at submission.
-///
-/// So the distinction is drawn here instead, and it is a distinction rather than a gate. Two of
-/// these verdicts mean the app cannot start; ``Verdict/noLiDAR`` means it starts and works less
-/// well, which is a judgement for the user to make once they have been told. See ``Verdict/isFatal``.
+/// What this iPhone can and cannot do, decided once at launch. There is no
+/// `UIRequiredDeviceCapabilities` value for LiDAR, so this is the only enforcement.
 enum DeviceCapability {
 
-    /// What the device can do, or the first thing it cannot.
     enum Verdict: Equatable {
         case supported
         /// No world tracking: an older iPhone, or the simulator.
@@ -26,16 +14,7 @@ enum DeviceCapability {
         /// No Metal device. Should be unreachable on hardware that cleared the other two.
         case noMetal
 
-        /// Whether the app is unable to start, as opposed to able to start and work badly.
-        ///
-        /// Only ``noLiDAR`` is survivable. Without depth the session still runs and the wall is
-        /// still found and repainted — but nothing can distinguish wall from television, from door
-        /// frame, from the person standing in front of it, because an ARKit plane anchor is a
-        /// filled polygon over the whole wall extent and never has holes cut in it. So paint
-        /// spreads over the furniture. That is worth a warning, not a locked door.
-        ///
-        /// The other two are not survivable: no world tracking means `ARSession.run` has nothing
-        /// to run, and no Metal device means the renderer cannot be built at all.
+        /// Whether the app cannot start at all, as opposed to starting and working badly.
         var isFatal: Bool {
             switch self {
             case .supported, .noLiDAR:       false
@@ -44,30 +23,13 @@ enum DeviceCapability {
         }
     }
 
-    /// Evaluates the device once.
-    ///
-    /// Order matters. The simulator fails `isSupported` *and* reports no scene reconstruction, so
-    /// world tracking is tested first — otherwise a simulator run would be told it needs a Pro
-    /// iPhone, which is true but not the useful half of the problem.
     static func evaluate() -> Verdict {
         #if targetEnvironment(simulator)
-        // Let the simulator through so the screens can be laid out and reviewed without a device.
-        //
-        // It can never satisfy the real requirement — no camera, no world tracking, no LiDAR — so
-        // what you get is the control surface over a black drawable: the render loop skips any
-        // frame it does not have, and ARKit is never started at all (see `ARSessionController`).
-        // Colours, zoom, the swatch row and the gallery are all live; the wall is not.
-        //
-        // Scoped to the simulator rather than to DEBUG on purpose. Simulator code is not present
-        // in a device build at all, so this bypass cannot reach a shipped app or a non-Pro iPhone
-        // even by accident, which a `#if DEBUG` gate could.
+        // The simulator has no camera or tracking; let it through so the UI can be reviewed.
         return .supported
         #else
         guard ARWorldTrackingConfiguration.isSupported else { return .noWorldTracking }
 
-        // Both halves of the LiDAR dependency, tested separately because they are separate
-        // features here: mesh classification is what finds doors and windows, scene depth is what
-        // keeps objects standing in front of the wall from being painted. Neither is optional.
         let hasMeshClassification =
             ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification)
         let hasSceneDepth =

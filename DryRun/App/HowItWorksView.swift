@@ -1,14 +1,6 @@
 import SwiftUI
 
 /// The explainer behind the "?" on the welcome screen.
-///
-/// Written for someone standing in a room holding a phone, not for someone who knows what LRV or
-/// time-of-flight means. Each section says what the app does and, briefly, why that is not the
-/// obvious thing — because the obvious thing (tint the picture) is what makes other paint
-/// visualizers wrong, and saying so is what earns trust in the result.
-///
-/// The accuracy note is deliberately not buried at the bottom in grey 9pt. Anyone about to spend
-/// money on paint deserves to be told plainly that a screen is not a paint chip.
 struct HowItWorksView: View {
 
     @Environment(\.dismiss) private var dismiss
@@ -114,7 +106,6 @@ struct HowItWorksView: View {
         }
     }
 
-    /// Boxed rather than run in with the rest, so it reads as a caveat and not as another feature.
     private var disclaimer: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {

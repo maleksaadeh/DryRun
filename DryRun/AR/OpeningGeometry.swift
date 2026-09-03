@@ -4,15 +4,7 @@ import simd
 
 /// Door and window faces lifted out of a LiDAR scene-reconstruction mesh.
 ///
-/// The session already runs `.meshWithClassification`, the most expensive reconstruction mode,
-/// because it classifies the reconstructed geometry as well as building it. This is what consumes
-/// that classification — without it the app would be paying for semantics it never read.
-///
-/// Scoped deliberately to *semantics*, never geometry. `ARMeshAnchor` is not used as a source of
-/// wall geometry: it is coarse, it lags plane detection, and it would mean a second mesh path
-/// competing with the plane anchors. None of that applies to using it as a lookup for "is this bit
-/// of wall actually a door", which is a question plane anchors cannot answer at all — a closed door
-/// flush with the wall sits *in* the plane, so the depth test cannot see it.
+/// A closed door sits in the wall plane, so the depth test cannot see it.
 struct OpeningGeometry {
 
     /// Faces classified as door or window. Everything else is discarded.
@@ -28,9 +20,6 @@ struct OpeningGeometry {
     let indexCount: Int
 
     /// Builds buffers for the door and window faces of one mesh anchor, or `nil` if it has none.
-    ///
-    /// Returning `nil` for the common case matters: most anchors in a room contain no opening at
-    /// all, and the render loop should not pay for an empty draw call per anchor per frame.
     init?(anchor: ARMeshAnchor, device: MTLDevice) {
         let geometry = anchor.geometry
         guard let classification = geometry.classification else { return nil }
@@ -54,9 +43,7 @@ struct OpeningGeometry {
             guard Self.excludedClassifications.contains(category) else { continue }
             for corner in 0..<3 {
                 let slot = face * 3 + corner
-                // ARKit documents this as UInt32 in practice, but the width is declared per
-                // geometry rather than fixed, so it is read from `bytesPerIndex` instead of
-                // assumed. Guessing wrong here would silently produce garbage triangles.
+                // Width is declared per geometry rather than fixed, so it is read, not assumed.
                 let value: UInt32
                 switch bytesPerIndex {
                 case 2:
@@ -77,8 +64,7 @@ struct OpeningGeometry {
         let vertices = geometry.vertices
         guard vertices.format == .float3 else { return nil }
 
-        // The vertex buffer is shared with ARKit and may be recycled once the anchor updates, so
-        // it is copied rather than retained. Indices are already a local array.
+        // ARKit may recycle the vertex buffer once the anchor updates, so it is copied.
         var positions = [simd_float3](repeating: .zero, count: vertices.count)
         let base = vertices.buffer.contents().advanced(by: vertices.offset)
         for i in 0..<vertices.count {

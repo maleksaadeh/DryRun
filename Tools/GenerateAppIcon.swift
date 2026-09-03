@@ -14,8 +14,7 @@ func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
             alpha: alpha)
 }
 
-// Powder Blue is lifted straight from PaintCatalog, so the icon and the app's swatch row are
-// literally the same colour.
+// Powder Blue is lifted from PaintCatalog, so the icon and the swatch row are the same colour.
 let wallPaint = rgb(0xE7E0D2)      // the wall, unpainted
 let paintedWall = rgb(0xA9C5D6)    // Powder Blue, what the phone sees
 let floorPaint = rgb(0xFFFFFF)     // outside the wall
@@ -74,8 +73,7 @@ func render(to url: URL, pixels: CGFloat) {
     guard let ctx = CGContext(data: nil, width: Int(pixels), height: Int(pixels),
                               bitsPerComponent: 8, bytesPerRow: Int(pixels) * 4,
                               space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                              // No alpha channel: an App Store icon must be fully opaque, and
-                              // every pixel is painted below.
+                              // No alpha: an App Store icon must be fully opaque.
                               bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
                                   | CGBitmapInfo.byteOrder32Little.rawValue) else {
         fatalError("could not create context")
@@ -89,8 +87,6 @@ func render(to url: URL, pixels: CGFloat) {
     drawRoom(ctx)
     drawCouch(ctx)
 
-    // The phone runs off the bottom of the canvas on purpose: its lower corners are never drawn,
-    // so it reads as held into frame instead of as an object floating in the room.
     let phone = CGRect(x: (S - 480) / 2, y: 115, width: 480, height: 822)
     let screen = phone.insetBy(dx: 30, dy: 30)
 

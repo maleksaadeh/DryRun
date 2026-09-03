@@ -13,17 +13,10 @@ struct ARWallView: UIViewRepresentable {
     let detailGain: Float
     let occluderBounds: OccluderBounds
     let zoom: Float
-    /// Whether the selected colour is withheld from the wall pending purchase.
-    ///
-    /// Enforced by drawing no walls, which routes through the same path as having none selected:
-    /// the composite passes the camera through untouched. Withholding it here rather than in the
-    /// UI is what makes the gate real — every other approach leaves the paint reaching the
-    /// renderer and merely hides it.
+    /// Withheld from the wall pending purchase; enforced by drawing no walls.
     let isPaintLocked: Bool
     /// Bumped to request a still. The renderer services each distinct value once.
     let captureToken: Int
-    /// Main-actor isolated, matching `WallRenderer.onCapture`: that isolation is what makes the
-    /// closure `Sendable`, and therefore legal to hand to a GPU completion handler.
     let onCapture: @MainActor (CGImage?) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -37,10 +30,7 @@ struct ARWallView: UIViewRepresentable {
         view.framebufferOnly = false
         view.preferredFramesPerSecond = 60
         view.isOpaque = true
-        // Tag the drawable as sRGB. `MTKView.colorspace` is macOS-only, but the underlying
-        // layer exposes it on iOS. This is not cosmetic: an untagged layer gets no colour
-        // matching, so sRGB values would be pushed unconverted to a Display P3 panel and read
-        // oversaturated — which would corrupt the very thing the app is measuring.
+        // Tag the drawable sRGB, or the values reach a P3 panel unconverted and read oversaturated.
         (view.layer as? CAMetalLayer)?.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
         return view
     }
@@ -51,8 +41,6 @@ struct ARWallView: UIViewRepresentable {
         context.coordinator.renderer.detailGain = detailGain
         context.coordinator.renderer.occluderBounds = occluderBounds
         context.coordinator.renderer.zoom = zoom
-        // Safe to assign unconditionally: the renderer gates on the token, so repeated updates
-        // with the same value are no-ops.
         context.coordinator.renderer.onCapture = onCapture
         context.coordinator.renderer.captureToken = captureToken
     }
@@ -73,10 +61,8 @@ struct ARWallView: UIViewRepresentable {
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
-        /// Pulls the latest frame rather than rendering from `ARSessionDelegate`.
-        ///
-        /// Driving from the display link keeps rendering at the panel's cadence and decouples it
-        /// from ARKit's callback rate, so a slow frame in tracking cannot stall presentation.
+        /// Pulls the latest frame rather than rendering from `ARSessionDelegate`, so a slow frame
+        /// in tracking cannot stall presentation.
         func draw(in view: MTKView) {
             guard let frame = controller.session.currentFrame else { return }
             calibration.update(with: frame)

@@ -1,11 +1,6 @@
 import SwiftUI
 
 /// Saved stills, browsed with the AR session stopped.
-///
-/// Presented full screen rather than as a sheet, and the caller pauses the session for the
-/// duration. Both are deliberate: a paint session runs long enough for thermal state to matter,
-/// and leaving world tracking running behind an opaque screen spends camera, LiDAR and Neural
-/// Engine budget on pixels nobody is looking at.
 struct GalleryView: View {
 
     let store: CaptureStore
@@ -113,8 +108,7 @@ struct CaptureDetailView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text(capture.paintName).font(.subheadline.weight(.semibold))
-                // Empty for the built-in colours and optional on a custom one, so it is guarded:
-                // an empty `Text` still takes the HStack's spacing, leaving a double gap.
+                // Empty for the built-ins: an empty `Text` still takes the HStack's spacing.
                 if !capture.paintCode.isEmpty {
                     Text(capture.paintCode).font(.caption.monospaced()).foregroundStyle(.secondary)
                 }
@@ -137,8 +131,6 @@ struct CaptureDetailView: View {
         .background(.thinMaterial)
     }
 
-    /// Zoom is worth recording — sharpness in a still is a crop artefact, not a lens one — but
-    /// only when it differs from native, which most of the time it does not.
     private var detailLine: String? {
         guard capture.zoom > 1.01 || capture.zoom < 0.99 else { return nil }
         return String(format: "%.1f× zoom", capture.zoom)
@@ -147,9 +139,7 @@ struct CaptureDetailView: View {
 
 /// Swipeable stack of captures.
 ///
-/// Paging by `Capture.id` rather than by index: a delete mutates the array, and an index-based
-/// selection would silently jump to whatever slid into that slot — or run off the end. The id
-/// either resolves or it does not, which makes the delete case explicit instead of subtly wrong.
+/// Paged by `Capture.id` rather than index, since a delete mutates the array.
 struct CapturePagerView: View {
 
     let store: CaptureStore
@@ -177,8 +167,6 @@ struct CapturePagerView: View {
                     .tag(capture.id)
             }
         }
-        // Dots would sit on top of the conditions panel, and the count in the title carries the
-        // same information without covering anything.
         .tabViewStyle(.page(indexDisplayMode: .never))
         .navigationTitle(position.map { "\($0.index) of \($0.total)" } ?? "")
         .navigationBarTitleDisplayMode(.inline)

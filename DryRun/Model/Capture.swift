@@ -1,11 +1,6 @@
 import Foundation
 
 /// A saved still, and the paint that produced it.
-///
-/// The paint is stored alongside the image because the pixels alone cannot answer "which colour
-/// was this?" — two colours a few LRV points apart are indistinguishable on screen once the
-/// wall's own shading is folded in, which is precisely the case someone comparing captures is
-/// trying to decide between.
 struct Capture: Identifiable, Codable, Hashable {
 
     let id: UUID
@@ -16,7 +11,7 @@ struct Capture: Identifiable, Codable, Hashable {
     let paintCode: String
     let paintLRV: Float
 
-    /// Digital zoom. Recorded because sharpness in the still is a crop artefact, not a lens one.
+    /// Digital zoom at capture time.
     let zoom: Float
 
     var imageFile: String { "\(id.uuidString).jpg" }

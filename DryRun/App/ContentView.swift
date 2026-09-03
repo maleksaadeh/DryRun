@@ -2,11 +2,6 @@ import SwiftUI
 import Metal
 
 /// The camera screen: point at a wall, tap it, pick a colour.
-///
-/// There is one render path — the wall repainted with its own shading and texture intact — so
-/// there is no mode control here. Everything the wall's appearance depends on is either measured
-/// (the illuminant, the shading field) or a property of the paint (its LRV), and none of it is a
-/// choice worth putting in front of someone deciding on a colour.
 struct ContentView: View {
     @StateObject private var controller: ARSessionController
     @StateObject private var calibration = CaptureCalibration()
@@ -15,8 +10,6 @@ struct ContentView: View {
     @State private var paint = PaintCatalog.default
     @State private var detailGain: Float = 0.6
     @State private var occluderBounds = OccluderBounds.default
-    /// Whether the tuning stack is on screen. Collapsed by someone who wants to look at the wall
-    /// rather than at the controls — which, when judging a colour, is most of the time.
     @State private var showsControls = true
     /// Digital zoom, and the value it had when the current pinch began.
     @State private var zoom: Float = 1
@@ -25,7 +18,6 @@ struct ContentView: View {
     @State private var customColours = CustomPaintStore()
     @State private var entitlements = Entitlements()
     @State private var isAddingColour = false
-    /// The custom colour being edited, driving the form sheet.
     @State private var editingColour: PaintColor?
     @State private var showsGallery = false
     /// Bumped once per shutter press; the renderer captures one frame per distinct value.
@@ -34,9 +26,6 @@ struct ContentView: View {
     @State private var isCapturing = false
     @State private var captureNote: String?
 
-    /// Main actor because it builds the renderer, which is main-actor isolated. SwiftUI already
-    /// constructs views on the main thread, so this states the existing reality rather than
-    /// constraining anything new.
     @MainActor
     init?() {
         guard let device = MTLCreateSystemDefaultDevice(),
@@ -58,28 +47,18 @@ struct ContentView: View {
                        captureToken: captureToken,
                        onCapture: handleCapture)
                 .ignoresSafeArea()
-                // The Metal view takes no touches at all. Anything hit-testable spanning the full
-                // screen competes with the controls stacked above it, and wins often enough to
-                // make them feel dead.
+                // Takes no touches: a full-screen hit target competes with the controls above it.
                 .allowsHitTesting(false)
 
-            // Wall selection lives on its own transparent layer, below the controls in the ZStack,
-            // so SwiftUI resolves it by z-order: a tap on the picker reaches the picker, and only
-            // a tap on open camera reaches here.
             GeometryReader { geometry in
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(coordinateSpace: .local) { location in
-                        // The app is portrait-locked in Info.plist, so the raycast's orientation
-                        // is fixed; there is no window scene to consult from here.
+                        // Portrait-locked in Info.plist, so the orientation is fixed.
                         controller.selectWall(at: location,
                                               viewportSize: geometry.size,
                                               orientation: .portrait)
                     }
-                    // Sharing this surface with the tap is deliberate: SwiftUI separates them by
-                    // touch count, so a one-finger tap still selects a wall while two fingers
-                    // zoom. A separate overlay would have to sit above or below the tap layer,
-                    // and either way one of the two would stop responding.
                     .gesture(
                         MagnifyGesture()
                             .onChanged { value in
@@ -103,8 +82,6 @@ struct ContentView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
 
-            // Kept in its own layer above the controls so it stays reachable when they are
-            // hidden, and so it never lands under the tap surface that selects walls.
             sessionControls
 
             if let prompt {
@@ -139,15 +116,12 @@ struct ContentView: View {
             CustomColorForm(existing: colour, store: customColours)
         }
         .onChange(of: customColours.colours) { _, colours in
-            // A deleted colour cannot be left on the wall: it is gone from the swatch row, so
-            // there would be no control left that could change away from it.
             if paint.isCustom, !colours.contains(where: { $0.id == paint.id }) {
                 paint = PaintCatalog.default
             }
         }
         .onChange(of: showsGallery) { _, isShowing in
-            // Nothing to render behind an opaque screen, and a paint session runs long enough for
-            // thermal headroom to be worth protecting.
+            // Nothing to render behind an opaque screen.
             if isShowing { controller.pause() } else { controller.resume() }
         }
         .animation(.easeInOut(duration: 0.22), value: showsControls)
@@ -161,15 +135,7 @@ struct ContentView: View {
     }
 
     /// The one line of guidance on screen, or nothing once there is paint to look at.
-    ///
-    /// Deliberately not a permanent status readout. Before a wall is selected there is genuinely
-    /// something to say — most people do not know a blank wall needs a corner or an outlet in
-    /// frame before ARKit will find it — and afterwards there is not, so it leaves.
-    ///
-    /// The tracking note outranks it because that one names a condition the *room* has to fix.
     private var prompt: String? {
-        // Outranks everything: it is the one message that explains something the user can act on
-        // immediately, and without it a locked colour looks like a broken renderer.
         if isPaintLocked { return "Unlock custom colours to see this one on your wall." }
         if let note = controller.trackingNote { return note }
         if controller.selectedWallID == nil { return controller.status }
@@ -177,29 +143,15 @@ struct ContentView: View {
     }
 
     /// Whether the selected colour is withheld from the wall pending purchase.
-    ///
-    /// Only ever true for a user-entered colour. The catalogue is never gated — someone who has
-    /// paid nothing still gets a working paint visualiser, and what they are buying is the ability
-    /// to bring their own colours to it.
     private var isPaintLocked: Bool { paint.isCustom && !entitlements.isUnlocked }
 
-    /// Upper zoom limit.
-    ///
-    /// Capped at 3x because this is a crop, not a lens: past roughly that the drawable is
-    /// magnifying so few camera pixels that the wall's own texture — the detail the relight path
-    /// works hard to preserve — turns to mush, which undercuts the thing the zoom is for.
+    /// Upper zoom limit. This is a crop, not a lens.
     static let maximumZoom: Float = 3
 
     /// Lower zoom limit: the point where the entire captured frame is on screen.
     ///
-    /// Zooming out is not padding. `ARFrame.displayTransform` aspect-*fills*, so a tall portrait
-    /// viewport is already cropping a 4:3 capture horizontally — at 1x a meaningful slice of the
-    /// frame is off screen, and only zooming below 1 reveals it. That is genuinely useful here,
-    /// since fitting a whole wall on screen is most of what a paint preview is for.
-    ///
-    /// Aspect-fill shows `min(a, b) / max(a, b)` of the source, so that ratio is exactly the zoom
-    /// at which nothing is cropped. Stopping there is deliberate: further out only adds letterbox
-    /// bars, shrinking the wall for no extra view.
+    /// `ARFrame.displayTransform` aspect-*fills*, and aspect-fill shows `min(a, b) / max(a, b)` of
+    /// the source, which is exactly the zoom at which nothing is cropped.
     private func minimumZoom(viewport: CGSize) -> Float {
         guard let cameraAspect = controller.cameraAspect,
               cameraAspect > 0, viewport.width > 0, viewport.height > 0 else { return 1 }
@@ -210,10 +162,6 @@ struct ContentView: View {
     }
 
     /// Reset and show/hide, pinned top-trailing.
-    ///
-    /// Reset matters more than it looks. `selectWall` deliberately falls back to the largest known
-    /// wall when a raycast misses, so tapping can never *deselect* — without this there is no way
-    /// back to an unpainted view once anything has been selected.
     private var sessionControls: some View {
         VStack(spacing: 10) {
             Button {
@@ -260,9 +208,6 @@ struct ContentView: View {
     }
 
     /// Shutter, with the gallery beside it.
-    ///
-    /// Outside the collapsible stack: hiding the tuning controls is how you get a clean look at
-    /// the wall, which is exactly the moment you are most likely to want a photo of it.
     private var shutterRow: some View {
         HStack {
             Button {
@@ -323,10 +268,7 @@ struct ContentView: View {
     private func capture() {
         guard !isCapturing else { return }
         #if targetEnvironment(simulator)
-        // There is no ARFrame, so the renderer never reaches the code that services the token,
-        // and the completion that would clear `isCapturing` never arrives. Left alone that
-        // latches the flag on the first press and disables the shutter for the rest of the
-        // session — so refuse the request here rather than arming one that cannot complete.
+        // No ARFrame means the token is never serviced, so `isCapturing` would never clear.
         show("No camera in the Simulator.")
         #else
         isCapturing = true
@@ -335,9 +277,6 @@ struct ContentView: View {
     }
 
     /// Files the frame the renderer handed back.
-    ///
-    /// Explicitly main actor: it mutates view state, and the isolation is also what allows it to be
-    /// passed to the renderer as a `Sendable` completion handler.
     @MainActor
     private func handleCapture(_ image: CGImage?) {
         guard isCapturing else { return }
@@ -365,10 +304,6 @@ struct ContentView: View {
     }
 
     /// Tunes how far off the wall something must stand before paint stops covering it.
-    ///
-    /// Exposed rather than hardcoded because the correct value is a property of the room, not of
-    /// the code: a television on a slim mount sits ~3 cm off the plaster, one on an articulating
-    /// arm far more, and the LiDAR noise floor that sets the lower limit varies with range.
     private var surfaceControl: some View {
         VStack(alignment: .leading, spacing: 9) {
             selectedPaint
@@ -390,9 +325,6 @@ struct ContentView: View {
                 }
                 .tint(.white)
 
-                // A/B switch rather than a setting. Mesh classification is coarse, and a false
-                // positive subtracts paint from real wall — so the way to judge it is to watch the
-                // difference on an actual doorway, not to trust it by default and hope.
                 Toggle(isOn: $controller.excludesOpenings) {
                     Text("Exclude doors & windows")
                         .font(.caption.weight(.medium))
@@ -405,12 +337,6 @@ struct ContentView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 
-    /// Names the colour currently on the wall.
-    ///
-    /// The swatch row already marks the selection with a border, but that is a weak signal at the
-    /// moment it matters most: judging a colour means looking at the wall, not at a 58pt chip, and
-    /// two dark colours a few LRV points apart are hard to tell apart down there in a dim room.
-    /// The name is also the thing you write down or search for, so it is worth stating in full.
     private var selectedPaint: some View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 5)
@@ -422,8 +348,7 @@ struct ContentView: View {
                 }
             Text(paint.name)
                 .font(.subheadline.weight(.semibold))
-            // Optional on a custom colour: a code is the manufacturer's, and someone matching a
-            // chip they were handed may not have one.
+            // Custom colours may have no code.
             if !paint.code.isEmpty {
                 Text(paint.code)
                     .font(.caption.monospaced())
@@ -443,11 +368,6 @@ struct ContentView: View {
     }
 
     /// Plain-language stand-in for the slider's raw metres.
-    ///
-    /// What the number means is "how far off the wall a thing has to be before it stops being
-    /// painted", which is not a quantity anyone holding a phone is in a position to estimate. The
-    /// three bands are what the choice actually amounts to: keep the trim and switch plates
-    /// painted, or keep the television out of it.
     private var surfaceDepthLabel: String {
         switch occluderBounds.band {
         case ..<0.015: "Tight"
@@ -456,11 +376,6 @@ struct ContentView: View {
         }
     }
 
-    /// Catalogue colours first, then the user's own.
-    ///
-    /// The three catalogue entries stay pinned at the front deliberately: their LRVs are published
-    /// figures, so they are the reference a hand-entered colour gets judged against. Burying them
-    /// under a long list of custom colours would remove the only calibrated thing on screen.
     private var palette: [PaintColor] { PaintCatalog.featured + customColours.colours }
 
     private var swatches: some View {
@@ -478,9 +393,6 @@ struct ContentView: View {
     }
 
     /// One chip. Custom colours additionally carry a long-press menu to edit or delete them.
-    ///
-    /// The menu is applied only to those, rather than to every chip with an empty body for the
-    /// catalogue ones: a long press that opens a menu with nothing in it reads as a bug.
     @ViewBuilder
     private func swatch(for colour: PaintColor) -> some View {
         let button = Button { paint = colour } label: { chip(for: colour) }
@@ -511,8 +423,6 @@ struct ContentView: View {
                                       lineWidth: paint == colour ? 3 : 1)
                 )
                 .overlay(alignment: .topTrailing) {
-                    // Marks what is withheld, on the chip itself, so the reason the wall stayed
-                    // bare is visible at the moment of choosing rather than only after.
                     if colour.isCustom, !entitlements.isUnlocked {
                         Image(systemName: "lock.fill")
                             .font(.system(size: 9, weight: .bold))
@@ -532,12 +442,6 @@ struct ContentView: View {
         .frame(width: 64)
     }
 
-    /// Opens the form.
-    ///
-    /// Deliberately never gated. Someone who has not paid can still enter a colour, check the hex
-    /// and LRV they typed, and correct them — the wall is what they are buying, so the wall is the
-    /// only thing withheld. If that decision is ever reversed, this button is the single place a
-    /// paywall sheet would be presented from instead.
     private var addSwatch: some View {
         Button { isAddingColour = true } label: {
             VStack(spacing: 4) {

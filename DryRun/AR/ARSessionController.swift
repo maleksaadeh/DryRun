@@ -3,11 +3,6 @@ import Metal
 import simd
 
 /// Owns the ARKit session and decides which plane is "the wall".
-///
-/// Wall discovery is entirely native: ARKit classifies detected vertical planes, and on LiDAR
-/// hardware `sceneDepth` supplies the occlusion needed to keep furniture and door frames out of
-/// the repaint. No segmentation model is loaded, which removes the model download, the sustained
-/// Neural Engine cost, and any third-party runtime from the shipping dependency list.
 @MainActor
 final class ARSessionController: NSObject, ObservableObject {
 
@@ -23,35 +18,18 @@ final class ARSessionController: NSObject, ObservableObject {
     /// Door and window faces harvested from the reconstruction mesh, keyed by anchor.
     @Published private(set) var openings: [UUID: OpeningGeometry] = [:]
 
-    /// Whether openings are subtracted from the mask. Exposed so the effect can be A/B'd on
-    /// device, which is the only way to judge whether the mesh classification is good enough to
-    /// trust — it is coarse, and a false positive removes paint from real wall.
+    /// Whether openings are subtracted from the mask.
     @Published var excludesOpenings = true
 
     /// Camera image aspect ratio (width / height) as displayed in portrait.
-    ///
-    /// Published so the UI can work out how far it is worth zooming out: `displayTransform`
-    /// aspect-*fills*, so a tall portrait viewport already crops the 4:3 frame horizontally, and
-    /// the uncropped width is only reachable by zooming below 1.
     @Published private(set) var cameraAspect: Float?
 
     /// Why tracking is degraded, when it is.
-    ///
-    /// This is the signal that names the dark-wall problem outright. ARKit fits planes partly from
-    /// visual feature points, and a dark, matte, evenly lit wall yields almost none — which
-    /// surfaces here as `.limited(.insufficientFeatures)`. Without it, "0 walls" is
-    /// indistinguishable from a bug in our own gate, which is why it is now on screen.
     @Published private(set) var trackingNote: String?
 
     /// When each mesh anchor was last converted, so a rebuild can be rate-limited per anchor.
     private var lastOpeningRebuild: [UUID: CFTimeInterval] = [:]
-
     /// Minimum gap between rebuilds of the same anchor.
-    ///
-    /// Mesh anchors update continuously and each conversion is a linear scan over every face, on
-    /// the CPU, on the main thread. At ARKit's update rate that is real cost in an app that
-    /// already caps work for thermal reasons — and openings do not move, so refreshing one twice a
-    /// second loses nothing.
     private static let openingRebuildInterval: CFTimeInterval = 0.5
 
     var selectedWall: WallGeometry? {
@@ -60,14 +38,7 @@ final class ARSessionController: NSObject, ObservableObject {
 
     /// Every wall plane lying on the same infinite plane as the selection, largest first.
     ///
-    /// ARKit routinely represents one physical wall as several anchors — panning along a long wall
-    /// grows a plane for a while and then starts a fresh one, and coplanar neighbours are merged
-    /// only sometimes. Painting `selectedWall` alone therefore stops partway along a continuous
-    /// wall, with the remainder left bare at an arbitrary seam.
-    ///
-    /// Grouping by the plane equation rather than by anchor identity makes the seam invisible: all
-    /// the segments rasterise into one mask, so they also share one shading normalisation and one
-    /// mean illuminant, which is what keeps the repaint continuous across the join.
+    /// ARKit routinely splits one physical wall across several anchors.
     var selectedWallGroup: [WallGeometry] {
         guard let seed = selectedWall else { return [] }
         return walls.values
@@ -77,13 +48,7 @@ final class ARSessionController: NSObject, ObservableObject {
 
     /// Whether two wall planes describe the same physical surface.
     ///
-    /// Tests the plane equation directly: normals pointing the same way, and origins lying on each
-    /// other's plane. Lateral distance is deliberately *not* tested — two segments of one wall can
-    /// be metres apart with a doorway between them and still be the same wall to paint.
-    ///
-    /// Facing is required to match rather than merely align, which is what keeps the far side of a
-    /// thin partition out of the group: its normal is antiparallel, so it fails the first test
-    /// before the ~6 cm offset tolerance ever comes into play.
+    /// Lateral distance is deliberately not tested: two segments of one wall can be metres apart.
     static func isCoplanar(_ candidate: WallGeometry, with seed: WallGeometry) -> Bool {
         let seedNormal = normal(of: seed.transform)
         guard simd_dot(seedNormal, normal(of: candidate.transform)) > 0.985 else { return false }
@@ -97,8 +62,7 @@ final class ARSessionController: NSObject, ObservableObject {
         simd_normalize(SIMD3(transform.columns.1.x, transform.columns.1.y, transform.columns.1.z))
     }
 
-    /// The anchor origin lies in the plane, so it defines the plane equation as well as the
-    /// centre offset would.
+    /// The anchor origin lies in the plane, so it defines the plane equation.
     private static func origin(of transform: simd_float4x4) -> SIMD3<Float> {
         SIMD3(transform.columns.3.x, transform.columns.3.y, transform.columns.3.z)
     }
@@ -112,22 +76,14 @@ final class ARSessionController: NSObject, ObservableObject {
 
     func start() {
         #if targetEnvironment(simulator)
-        // No session at all on the simulator. `ARWorldTrackingConfiguration` is unsupported there,
-        // and running one raises rather than failing quietly, so there is nothing to guard against
-        // afterwards — the only safe thing is not to start. `DeviceCapability` still lets the
-        // simulator reach this screen so the controls can be laid out; the render loop draws
-        // nothing because `session.currentFrame` stays nil, which is the black behind them.
+        // `ARWorldTrackingConfiguration` is unsupported on the simulator and running one raises.
         status = "Simulator preview — no camera or wall tracking. The controls are live."
         return
         #else
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.vertical]
         configuration.environmentTexturing = .automatic
-
-        // Scene reconstruction sharpens plane extents and, more importantly, supplies the
-        // per-pixel depth the occlusion test needs. `DeviceCapability` has already established
-        // both are available; these stay guarded because setting an unsupported option on the
-        // configuration raises rather than being ignored.
+        // Guarded because setting an unsupported option raises.
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
             configuration.sceneReconstruction = .meshWithClassification
         }
@@ -139,8 +95,7 @@ final class ARSessionController: NSObject, ObservableObject {
             hasSceneDepth = true
         }
 
-        // Read once here rather than per frame: the format is fixed for the session, and
-        // republishing at 60 Hz would churn every view observing this controller.
+        // Read once: the format is fixed for the session.
         let resolution = configuration.videoFormat.imageResolution
         if resolution.width > 0, resolution.height > 0 {
             // The capture is landscape-native, so portrait width/height is the inverse.
@@ -157,10 +112,7 @@ final class ARSessionController: NSObject, ObservableObject {
 
     /// Restarts a paused session without discarding what it already knows.
     ///
-    /// Distinct from `start()` on purpose: that passes `[.resetTracking, .removeExistingAnchors]`,
-    /// which is right at launch and wrong here. Coming back from the gallery to find every wall
-    /// gone and the selection cleared would make browsing a saved still cost the user their setup.
-    /// Re-running with no options lets ARKit relocalise against the map it still holds.
+    /// Distinct from `start()`, which resets tracking and drops every anchor.
     func resume() {
         guard let configuration = session.configuration else {
             start()
@@ -172,13 +124,8 @@ final class ARSessionController: NSObject, ObservableObject {
 
     /// Selects the wall under a tap.
     ///
-    /// Raycasts against existing plane *geometry* rather than infinite planes, so a tap past the
-    /// edge of a detected wall does not silently select it.
-    ///
-    /// - Parameters:
-    ///   - point: Tap location in view coordinates.
-    ///   - view: The view the tap occurred in, used to normalise the point.
-    ///   - orientation: Current interface orientation.
+    /// Raycasts against existing plane *geometry*, so a tap past the edge of a detected wall does
+    /// not silently select it.
     func selectWall(at point: CGPoint, viewportSize size: CGSize, orientation: UIInterfaceOrientation) {
         guard let frame = session.currentFrame else {
             status = "No camera frame yet."
@@ -187,9 +134,7 @@ final class ARSessionController: NSObject, ObservableObject {
 
         guard size.width > 0, size.height > 0 else { return }
 
-        // `ARFrame.raycastQuery` expects normalised *captured-image* coordinates, not view
-        // coordinates. The display transform is what maps between them; skipping this inversion
-        // makes taps land in the wrong place in every orientation except by coincidence.
+        // `raycastQuery` expects normalised captured-image coordinates, not view coordinates.
         let normalised = CGPoint(x: point.x / size.width, y: point.y / size.height)
         let toImageSpace = frame.displayTransform(for: orientation, viewportSize: size).inverted()
         let imagePoint = normalised.applying(toImageSpace)
@@ -206,8 +151,7 @@ final class ARSessionController: NSObject, ObservableObject {
             return
         }
 
-        // Fall back to the largest known wall: during the first seconds of a session the plane
-        // mesh often lags the visible surface, and failing a tap outright reads as a broken app.
+        // The plane mesh lags the visible surface early on, and failing a tap reads as broken.
         if let largest = walls.values.max(by: { $0.area < $1.area }) {
             selectedWallID = largest.identifier
             status = "No wall exactly there — selected the largest detected wall."
@@ -235,9 +179,6 @@ final class ARSessionController: NSObject, ObservableObject {
     }
 
     /// Harvests door and window faces from any mesh anchors in the batch.
-    ///
-    /// Anchors yielding no openings are recorded in `lastOpeningRebuild` as well, so a mesh full of
-    /// plain wall is not rescanned on every single update just because it produced nothing.
     private func ingestMeshes(_ anchors: [ARAnchor]) {
         let now = CACurrentMediaTime()
         for anchor in anchors {
@@ -258,18 +199,8 @@ final class ARSessionController: NSObject, ObservableObject {
 
     /// Whether a detected plane should be offered as a paintable wall.
     ///
-    /// Accepts unclassified planes, which an earlier revision rejected. That rejection was
-    /// guarding against painting floors and ceilings, but `planeDetection` is `[.vertical]`, so
-    /// no horizontal plane is ever detected in the first place — the geometry constraint already
-    /// does that job, and the classification gate was only costing us walls.
-    ///
-    /// And it cost them precisely where they are hardest to get: classification leans on visual
-    /// evidence, so a dark, matte or evenly lit wall is exactly the case that stalls at
-    /// `.none(.undetermined)` or gives up at `.none(.unknown)`. Refusing those meant the app
-    /// detected a perfectly good dark wall and then discarded it.
-    ///
-    /// Doors and windows stay rejected. They are vertical, so geometry cannot exclude them, and
-    /// they are the one affirmative classification we actively do not want to paint over.
+    /// Unclassified planes are accepted: classification stalls at `.none` on exactly the dark,
+    /// matte, evenly lit walls that are hardest to detect. Doors and windows stay rejected.
     static func isPaintable(_ plane: ARPlaneAnchor) -> Bool {
         switch plane.classification {
         case .wall, .none:
@@ -297,8 +228,7 @@ extension ARSessionController: @preconcurrency ARSessionDelegate {
     }
 
     func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
-        // Capture the plane being selected before it leaves the dictionary, so a merge can be
-        // followed rather than simply losing the wall.
+        // Capture the selected plane before it leaves the dictionary, so a merge can be followed.
         let departing = anchors.first { $0.identifier == selectedWallID }
             .flatMap { walls[$0.identifier] }
 
@@ -310,10 +240,7 @@ extension ARSessionController: @preconcurrency ARSessionDelegate {
 
         guard let departing else { return }
 
-        // ARKit removes an anchor when it merges into a neighbour, so the wall usually still
-        // exists under a different identity. Re-selecting the largest coplanar survivor keeps the
-        // paint on screen; dropping the selection instead made the wall flicker off mid-pan, which
-        // looked like a tracking failure rather than the bookkeeping event it is.
+        // ARKit removes an anchor when it merges into a neighbour, so the wall usually survives.
         if let heir = walls.values
             .filter({ Self.isCoplanar($0, with: departing) })
             .max(by: { $0.area < $1.area }) {
@@ -333,8 +260,6 @@ extension ARSessionController: @preconcurrency ARSessionDelegate {
         case .limited(let reason):
             switch reason {
             case .insufficientFeatures:
-                // The dark-wall case. Worth naming rather than reporting "limited", because the
-                // remedy is the room — more light, or a textured surface in view — not a retry.
                 trackingNote = "too few visual features — add light or pan across a textured area"
             case .initializing:      trackingNote = "initialising — pan slowly"
             case .excessiveMotion:   trackingNote = "moving too fast"

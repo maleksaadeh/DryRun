@@ -6,9 +6,8 @@ import simd
 
 /// GPU-side layout mirror of `WallUniforms` in Shaders.metal.
 ///
-/// - Important: Field order and padding must match the MSL declaration exactly. `WallRenderer`
-///   asserts the expected stride at init so a drift shows up immediately rather than as garbled
-///   colour on device.
+/// - Important: field order and padding must match the MSL declaration. The stride is asserted at
+///   init, so a drift shows up immediately rather than as garbled colour on device.
 struct WallUniforms {
     var modelViewProjection = matrix_identity_float4x4
     var cameraUVTransform = matrix_identity_float3x3
@@ -17,43 +16,24 @@ struct WallUniforms {
     private var _pad0: Float = 0
     var viewportSize = SIMD2<Float>(1, 1)
     var detailGain: Float = 0.6
-    /// Followed by 8 bytes of implicit padding, which aligns `meanWallRGB` to 16. The MSL
-    /// declaration inserts the same gap, so both sides still agree on a 208-byte stride.
+    /// Followed by 8 bytes of implicit padding, aligning `meanWallRGB` to 16. MSL matches.
     var edgeFeather: Float = 0.35
     var meanWallRGB = SIMD3<Float>(repeating: 0.25)
     var bilateralStep = SIMD2<Float>(1.0 / 256, 1.0 / 256)
     /// How far in front of the fitted plane a fragment may sit and still be treated as wall.
-    ///
-    /// Appended last deliberately: `bilateralStep` ends at offset 184 and the struct's 16-byte
-    /// alignment already pads the tail to 192, so this field costs no stride. Inserting it
-    /// anywhere earlier would shift every following field and silently corrupt render state.
     var occluderBand: Float = OccluderBounds.default.band
-    /// Width of the fall-off above `occluderBand`. Also lands in the tail padding: two trailing
-    /// floats reach exactly 192, so the stride is unchanged.
+    /// Width of the fall-off above `occluderBand`.
     var occluderRamp: Float = OccluderBounds.default.rampWidth
-    /// Digital zoom. Crops the camera sample and magnifies the wall geometry by the same factor,
-    /// so the two stay registered; 1 is native field of view.
+    /// Digital zoom. Crops the camera sample and scales the geometry to match; 1 is native.
     var zoom: Float = 1
-    /// Depth-proportional slack added to `occluderBand`. Still inside the 208-byte stride.
+    /// Depth-proportional slack added to `occluderBand`.
     var occluderRange: Float = OccluderBounds.default.rangeTolerance
 }
 
-/// The depth bounds that decide wall from object, and what they mean in the scene.
-///
-/// Two numbers define the transition, and the pair matters more than either alone:
+/// The depth bounds that decide wall from object.
 ///
 /// - `band` — protrusion at which a surface stops counting as wall. Below it, fully painted.
-/// - `rampWidth` — how much further out the transition takes to complete. Above `band +
-///   rampWidth`, fully excluded.
-///
-/// The previous values (0.08 m band, 0.05 m ramp) meant nothing was fully excluded until it stood
-/// **13 cm** off the wall. A wall-mounted television is 3–7 cm deep and a picture frame 2–3 cm, so
-/// both landed inside "this is wall" and got painted — the exact bug this addresses. The comment
-/// claimed frames were excluded; the arithmetic never did it.
-///
-/// The floor on `band` is set by noise, not by taste: LiDAR returns drift by roughly a centimetre
-/// at room range, and the plane fit adds its own error. Tighten past that and the wall itself
-/// starts dropping out in speckles.
+/// - `rampWidth` — how much further out the transition takes to complete.
 struct OccluderBounds: Equatable, Sendable {
 
     /// Protrusion at which paint starts to fall away, in metres.
@@ -62,31 +42,18 @@ struct OccluderBounds: Equatable, Sendable {
     var rampWidth: Float
     /// Additional tolerance per metre of range, dimensionless.
     ///
-    /// A fixed metric tolerance is wrong at both ends. LiDAR error grows with distance, the plane
-    /// fit is least accurate at its own periphery, and both worsen at the grazing angles you get
-    /// looking along a wall — so a band tight enough to reject a television at 1.5 m also rejects
-    /// genuine wall at 4 m, which is what thins the paint at the far edges.
-    ///
-    /// Scaling with measured depth keeps the near field strict, where objects on the wall actually
-    /// need excluding, and loosens the far field, where the only thing at stake is whether the wall
-    /// gets painted to its edge. At 0.015 that adds ~1.5 cm at 1 m and ~6 cm at 4 m.
+    /// LiDAR error grows with distance. At 0.015 this adds ~1.5 cm at 1 m and ~6 cm at 4 m.
     var rangeTolerance: Float = 0.015
 
     /// Everything at least this far off the wall is fully excluded.
     var fullyExcludedAt: Float { band + rampWidth }
 
-    /// Tuned for the objects that actually sit on walls: excludes anything 4 cm or more off the
-    /// surface, which covers televisions and framed art, while leaving trim and switch plates —
-    /// which sit within a centimetre or two — painted along with the wall.
+    /// Excludes anything 4 cm or more off the surface, leaving trim and switch plates painted.
     static let `default` = OccluderBounds(band: 0.02, rampWidth: 0.02, rangeTolerance: 0.015)
 
-    /// Range offered to the tuning slider. The top end is the old behaviour, kept reachable so
-    /// the regression can be demonstrated rather than only described.
+    /// Range offered to the tuning slider.
     static let range: ClosedRange<Float> = 0.005...0.08
 
-    /// Human-readable statement of what the current setting does, for the HUD. Showing the
-    /// derived bound rather than the raw slider value is the point: `band` alone doesn't say
-    /// where exclusion actually completes.
     var summary: String {
         String(format: "paints < %.0f cm · excludes ≥ %.0f cm (at 2 m)",
                (band + rangeTolerance * 2) * 100,
@@ -96,16 +63,8 @@ struct OccluderBounds: Equatable, Sendable {
 
 /// Renders the camera feed with the selected wall plane repainted.
 ///
-/// Four stages per frame: rasterise the wall mask (with depth occlusion), blur it under
-/// normalised convolution to recover the shading field, reduce it to a mean for normalisation,
-/// then composite. All four are cheap enough to hold 60fps; the expensive alternative — a
-/// per-frame neural mask — is what this design deliberately avoids.
-///
-/// Isolated to the main actor. Everything that drives it already lives there — the display link
-/// that calls `draw`, the `MTKView` whose drawable and size it reads, and the AR session whose
-/// delegate queue is `.main` — so this states an invariant the app already relied on rather than
-/// imposing a new one. It also makes the class `Sendable`, which is what lets the GPU completion
-/// handlers below hand results back without an unsynchronised write.
+/// Four stages per frame: rasterise the wall mask with depth occlusion, blur it under normalised
+/// convolution to recover the shading field, reduce it to a mean, then composite.
 @MainActor
 final class WallRenderer: NSObject {
 
@@ -118,15 +77,7 @@ final class WallRenderer: NSObject {
     private let compositePipeline: MTLRenderPipelineState
     private let textureCache: CVMetalTextureCache
 
-    /// Blur and mean reduction, absent where Metal Performance Shaders is unavailable.
-    ///
-    /// Optional not out of caution about hardware — every iPhone that clears ``DeviceCapability``
-    /// has MPS — but because the iOS Simulator on an Intel Mac does not. `MPSSupportsMTLDevice`
-    /// returns false there and constructing a kernel anyway traps inside MPS, which would kill the
-    /// app in `init` before the simulator preview drew anything.
-    ///
-    /// Costs the device build nothing: the encode site below sits inside the `!walls.isEmpty`
-    /// branch, and the simulator never gets there because it has no ARFrames to begin with.
+    /// Absent where Metal Performance Shaders is unavailable, which means the Simulator.
     private let blur: MPSImageGaussianBlur?
     private let meanReduce: MPSImageStatisticsMean?
 
@@ -135,8 +86,7 @@ final class WallRenderer: NSObject {
     private var meanTexture: MTLTexture?
     private var drawableSize = CGSize(width: 1, height: 1)
 
-    /// Retained across frames: reading the mean back costs one frame of latency, which is
-    /// invisible because scene illumination changes far slower than the frame rate.
+    /// Retained across frames: the readback costs one frame of latency.
     private var meanWallLuma: Float = 0.25
     /// Mean linear colour inside the mask, used to normalise the illuminant tint to neutral.
     private var meanWallRGB = SIMD3<Float>(repeating: 0.25)
@@ -148,38 +98,16 @@ final class WallRenderer: NSObject {
     var zoom: Float = 1
 
     /// Incremented by the UI to request a still. One capture per distinct value.
-    ///
-    /// A token rather than a closure-as-trigger, because `updateUIView` runs whenever SwiftUI
-    /// re-renders for any reason — and the readback is asynchronous, so between the request and
-    /// its delivery there is a window several frames wide. Re-assigning a nullable request in that
-    /// window re-armed it on every pass and produced a burst of identical stills. Comparing
-    /// against `servicedCaptureToken` is idempotent however many times the view updates.
     var captureToken: Int = 0
 
     /// Where a completed still is delivered. `nil` argument means readback failed.
-    ///
-    /// Typed as main-actor-isolated so the value is `Sendable` and can legally cross out of the
-    /// GPU completion handler; the hop is then explicit at the call site rather than implied.
-    ///
-    /// Capturing the drawable rather than re-rendering means the still is the same pixels that
-    /// were on screen — same mask, same relight, same illuminant estimate. Re-rendering offscreen
-    /// would risk a still that disagrees with what the user judged, which in a colour app is the
-    /// one thing a saved image must not do.
     var onCapture: (@MainActor (CGImage?) -> Void)?
 
     /// Last token acted on, so a request is serviced exactly once.
     private var servicedCaptureToken = 0
 
-    /// Stand-in bound at the depth slot when ARKit has no depth for this frame.
-    ///
-    /// `wallMaskFragment` declares `depthTex` unconditionally, and Metal API Validation aborts on a
-    /// declared texture argument with nothing bound — it reasons about the binding statically and
-    /// cannot see that `hasDepth` keeps the sampler unreached. Without validation the unbound read
-    /// returns zeros and nothing goes wrong, which is why this only ever surfaced when launching
-    /// from Xcode, where validation is on by default.
-    ///
-    /// Depth is absent for the first frames of every session, so this is reached routinely rather
-    /// than only on devices without a sensor. Contents are never read; only the binding matters.
+    /// Stand-in bound at the depth slot when ARKit has no depth for this frame: Metal API
+    /// Validation aborts on a declared texture argument with nothing bound.
     private lazy var placeholderDepth: MTLTexture? = {
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .r32Float, width: 1, height: 1, mipmapped: false
@@ -203,7 +131,7 @@ final class WallRenderer: NSObject {
               let cache else { return nil }
         self.textureCache = cache
 
-        // Mask target is RG16Float: .r coverage, .g mask-weighted luma.
+        // Mask target: .r coverage, .gba mask-weighted linear RGB.
         let maskDescriptor = MTLRenderPipelineDescriptor()
         maskDescriptor.vertexFunction = library.makeFunction(name: "wallMaskVertex")
         maskDescriptor.fragmentFunction = library.makeFunction(name: "wallMaskFragment")
@@ -229,8 +157,7 @@ final class WallRenderer: NSObject {
         }
 
         if MPSSupportsMTLDevice(device) {
-            // Radius is in pixels at mask resolution. Large enough to erase wall texture and keep
-            // only the illumination gradient; small enough that a real shadow edge survives.
+            // Radius in pixels at mask resolution: erases wall texture, keeps a real shadow edge.
             let gaussian = MPSImageGaussianBlur(device: device, sigma: 24)
             gaussian.edgeMode = .clamp
             blur = gaussian
@@ -286,16 +213,10 @@ final class WallRenderer: NSObject {
 
     /// Size of one depth texel in viewport UV, which sets the edge-refinement radius.
     ///
-    /// The depth map is 256x192 regardless of drawable size, so on a 16 Pro Max a single texel
-    /// covers roughly ten screen pixels. A refinement kernel narrower than that cannot bridge the
-    /// staircase the depth resolution produces, which is why this is measured rather than assumed.
-    ///
-    /// - Note: assumes portrait, where the depth map's long axis runs down the screen. The target
-    ///   is portrait-locked; a rotating build would need the orientation folded in here.
+    /// - Note: assumes portrait, which the target is locked to.
     private func bilateralStep(depth: MTLTexture?, viewport: SIMD2<Float>) -> SIMD2<Float> {
         guard let depth, viewport.x > 0, viewport.y > 0 else { return SIMD2<Float>(1.0 / 256, 1.0 / 256) }
-        // Depth texels are square in the camera image, so one step is the same number of screen
-        // pixels on either axis; only the UV normalisation differs.
+        // Depth texels are square in the camera image, so only the UV normalisation differs.
         let stepY = 1.0 / Float(max(depth.width, depth.height))
         return SIMD2<Float>(stepY * viewport.y / viewport.x, stepY)
     }
@@ -314,17 +235,8 @@ final class WallRenderer: NSObject {
 
     // MARK: - Frame
 
-    /// Draws one frame.
-    ///
-    /// - Parameters:
-    ///   - frame: Current ARKit frame; supplies camera imagery, pose and optional scene depth.
-    ///   - walls: Coplanar segments of the selected wall, or empty to pass the camera through.
-    ///     Taking a group rather than one plane is what lets a wall ARKit split across several
-    ///     anchors repaint as a single continuous surface.
-    ///   - openings: Door and window geometry to subtract from the mask; empty to subtract none.
-    ///   - paint: Illuminant-adapted linear reflectance of the chosen colour.
-    ///   - view: Destination view.
-    ///   - orientation: Interface orientation, needed for the camera display transform.
+    /// Draws one frame. `walls` is the coplanar group of the selected wall, or empty to pass the
+    /// camera through; `paint` is the illuminant-adapted linear reflectance of the chosen colour.
     func draw(frame: ARFrame,
               walls: [WallGeometry],
               openings: [OpeningGeometry] = [],
@@ -378,14 +290,9 @@ final class WallRenderer: NSObject {
             encoder.setFragmentBytes(&hasDepth, length: MemoryLayout<Int32>.stride, index: 2)
             encoder.setFragmentTexture(yTexture, index: 0)
             encoder.setFragmentTexture(cbcrTexture, index: 1)
-            // Never nil: an empty slot here is what Metal API Validation aborts on. `hasDepth`
-            // still tells the shader whether the contents mean anything.
+            // Never nil: an empty slot is what Metal API Validation aborts on.
             encoder.setFragmentTexture(depth ?? placeholderDepth, index: 2)
 
-            // Every segment accumulates into the same mask target, so the blur and mean passes
-            // below see one surface. Sharing that normalisation across the group is the point:
-            // per-segment means would step the shading at each anchor boundary, which is exactly
-            // the seam this is meant to remove.
             for wall in walls {
                 uniforms.modelViewProjection = viewProjection * wall.transform
                 encoder.setVertexBuffer(wall.vertexBuffer, offset: 0, index: 0)
@@ -399,9 +306,7 @@ final class WallRenderer: NSObject {
             }
             // --- Pass A2: subtract classified openings ---
             //
-            // Before the blur, so the normalised convolution never sees them: leaving a doorway in
-            // the mask would drag the far room's luminance into the wall's shading estimate, which
-            // is the same contamination the mask exists to prevent.
+            // Before the blur, so a doorway cannot contaminate the wall's shading estimate.
             if !openings.isEmpty {
                 encoder.setRenderPipelineState(openingPipeline)
                 for opening in openings {
@@ -443,15 +348,10 @@ final class WallRenderer: NSObject {
 
         // --- Optional: copy the drawable for a still ---
         //
-        // Blitting into our own texture rather than reading `drawable.texture` in the completion
-        // handler: by then the drawable has been presented and may already be recycled, so the
-        // bytes are not ours to read. `framebufferOnly = false` on the view is what permits the
-        // copy at all.
+        // Blitted into our own texture: by the time the handler runs the drawable may be recycled.
         var captureDestination: MTLTexture?
         if captureToken != servicedCaptureToken {
-            // Marked serviced before the work is queued, not after it completes: the completion
-            // handler lands several frames later, and leaving the token unconsumed until then is
-            // exactly what let one press capture repeatedly.
+            // Marked serviced before the work is queued; the handler lands several frames later.
             servicedCaptureToken = captureToken
             let copy = captureTarget(matching: drawable.texture)
             if let copy, let blit = commandBuffer.makeBlitCommandEncoder() {
@@ -461,11 +361,7 @@ final class WallRenderer: NSObject {
             }
         }
 
-        // Completion handlers run on a Metal-owned thread. Each one decodes into a plain value
-        // first — no actor state touched — then hops once to the main actor to apply it. The
-        // previous version mutated `meanWallLuma` and `meanWallRGB` directly from here while
-        // `draw` read them on main, which was an unsynchronised race on the very value the
-        // shading normalisation depends on.
+        // Handlers run on a Metal-owned thread, so each hops to the main actor to apply its value.
         let meanBox = TextureBox(meanTexture)
         commandBuffer.addCompletedHandler { [weak self] _ in
             guard let sample = WallRenderer.decodeMean(from: meanBox.texture) else { return }
@@ -505,11 +401,7 @@ final class WallRenderer: NSObject {
         return captureTexture
     }
 
-    /// Turns a BGRA8 texture into a CGImage.
-    ///
-    /// Tagged sRGB because the composite's final step is `linearToSRGB`, and the layer itself is
-    /// tagged sRGB to match. Writing these bytes as anything else would undo the colour management
-    /// the render path is careful about — the saved still would not match the screen.
+    /// Turns a BGRA8 texture into a CGImage, tagged sRGB to match the layer.
     private nonisolated static func image(from texture: MTLTexture) -> CGImage? {
         let width = texture.width, height = texture.height
         guard width > 0, height > 0 else { return nil }
@@ -527,8 +419,7 @@ final class WallRenderer: NSObject {
         guard let provider = CGDataProvider(data: Data(bytes) as CFData),
               let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
 
-        // .bgra8Unorm is little-endian BGRA; alpha is present but meaningless here, so skip it
-        // rather than let a premultiplied interpretation darken the result.
+        // Little-endian BGRA; alpha is meaningless here, so skip it.
         let bitmapInfo = CGBitmapInfo(rawValue:
             CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
 
@@ -545,21 +436,13 @@ final class WallRenderer: NSObject {
                        intent: .defaultIntent)
     }
 
-    /// Pulls the 1x1 reduction back and derives the wall's mean colour over the masked region.
-    ///
-    /// `meanGBA / meanR` is the mask-weighted average: the coverage channel divides out the
-    /// unmasked pixels, so the result is the wall's own mean colour rather than the frame's.
     /// One frame's mask-weighted mean, as a value that can cross actor boundaries.
     private struct MeanSample: Sendable {
         let luma: Float
         let rgb: SIMD3<Float>
     }
 
-    /// Reads the 1x1 reduction and derives the wall's mean colour over the masked region.
-    ///
-    /// `nonisolated` and pure: it runs on whatever thread Metal completes the command buffer on,
-    /// reads a texture whose GPU work has finished, and touches no shared state. Returning a value
-    /// rather than assigning one is what keeps the hazard out of this function entirely.
+    /// Reads the 1x1 reduction: `meanGBA / meanR` is the mask-weighted average.
     private nonisolated static func decodeMean(from texture: MTLTexture) -> MeanSample? {
         var halfPixel = [UInt16](repeating: 0, count: 4)
         texture.getBytes(&halfPixel,
@@ -577,10 +460,9 @@ final class WallRenderer: NSObject {
         return MeanSample(luma: mean, rgb: meanRGB)
     }
 
-    /// Folds a new sample into the running means. Main actor, like every other write to them.
+    /// Folds a new sample into the running means.
     private func apply(_ sample: MeanSample) {
-        // Light temporal smoothing: prevents the whole wall flickering when the mask area jumps
-        // as the user pans and new plane extent is discovered.
+        // Light temporal smoothing, so the wall does not flicker as new plane extent is found.
         meanWallLuma += (sample.luma - meanWallLuma) * 0.15
         meanWallRGB += (sample.rgb - meanWallRGB) * 0.15
     }
@@ -610,11 +492,8 @@ private extension Float {
 
 /// Carries an `MTLTexture` into a GPU completion handler.
 ///
-/// Metal's types predate `Sendable`, so a texture cannot cross a concurrency boundary on its own.
-/// The unchecked conformance is sound in this specific use: the handler runs only after the command
-/// buffer completes, the texture is shared-storage, and the handler only reads it. Confining the
-/// escape hatch to a named box keeps that reasoning in one place instead of scattering
-/// `nonisolated(unsafe)` through the render loop.
+/// Sound here: the handler runs only after the command buffer completes, and only reads a
+/// shared-storage texture.
 private struct TextureBox: @unchecked Sendable {
     let texture: MTLTexture
     init(_ texture: MTLTexture) { self.texture = texture }

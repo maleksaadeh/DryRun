@@ -1,11 +1,6 @@
 import SwiftUI
 
 /// Shown in place of everything else when the device cannot run the app.
-///
-/// It replaces the welcome screen rather than following it. Letting someone read three steps and
-/// press Get Started before telling them their phone cannot do this wastes their time and reads as
-/// a crash; refusing up front is the honest version, and it is also the only version that keeps
-/// the camera permission prompt from firing on a device that will never use it.
 struct UnsupportedDeviceView: View {
 
     let verdict: DeviceCapability.Verdict
@@ -47,14 +42,6 @@ struct UnsupportedDeviceView: View {
     }
 
     // MARK: - Copy
-    //
-    // `.supported` and `.noLiDAR` are both unreachable now: RootView shows this screen only for
-    // verdicts where `isFatal` is true, and routes a missing scanner to a dismissable warning on
-    // the welcome screen instead. Their copy is kept rather than deleted because the routing rule
-    // is one line and could reasonably change back.
-    //
-    // The switches stay exhaustive rather than defaulting, so adding a verdict later fails the
-    // build here instead of silently inheriting whichever branch `default` happened to point at.
 
     private var icon: String {
         switch verdict {

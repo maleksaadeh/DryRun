@@ -5,12 +5,7 @@ import Observation
 import UIKit
 import UniformTypeIdentifiers
 
-/// On-disk library of saved stills.
-///
-/// Plain files under Documents — a JSON index beside one JPEG and one thumbnail per capture —
-/// rather than SwiftData or Core Data. Being able to pull the folder off the device with Finder
-/// and read the index in a text editor is worth more here than a query language, and there is no
-/// relational shape to model.
+/// On-disk library of saved stills: a JSON index beside one JPEG and one thumbnail per capture.
 @MainActor
 @Observable
 final class CaptureStore {
@@ -21,9 +16,7 @@ final class CaptureStore {
     private let directory: URL
     private let indexURL: URL
     private let thumbnailCache = NSCache<NSString, UIImage>()
-    /// Full-size decode cache. Paging holds neighbours alive and re-evaluates bodies freely, so
-    /// without this a swipe re-decodes multi-megapixel JPEGs on every pass. Bounded because these
-    /// are full-resolution stills and an unbounded cache would grow to the size of the library.
+    /// Full-size decode cache: paging would otherwise re-decode multi-megapixel JPEGs every pass.
     private let imageCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 6
@@ -78,8 +71,7 @@ final class CaptureStore {
     @discardableResult
     func save(_ image: CGImage, describing capture: Capture) -> Bool {
         let uiImage = UIImage(cgImage: image)
-        // 0.95: this is the record of a colour judgement, so chroma subsampling artefacts are
-        // worth avoiding even at the cost of file size.
+        // 0.95: this is the record of a colour judgement, so artefacts are worth avoiding.
         guard let data = uiImage.jpegData(compressionQuality: 0.95),
               let thumbnail = Self.thumbnail(from: uiImage)?.jpegData(compressionQuality: 0.8)
         else { return false }

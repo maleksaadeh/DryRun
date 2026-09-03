@@ -1,14 +1,9 @@
 import SwiftUI
 
-/// Adds or edits one user-entered colour.
+/// Adds or edits one user-entered color.
 ///
-/// Two fields are required and the second one is the reason this form exists at all: a hex alone
-/// does not describe a paint. The swatch supplies the hue, the LRV supplies the lightness, and the
-/// renderer trusts the LRV — so a colour saved with a guessed LRV renders the right hue at the
-/// wrong lightness, which is precisely the error the whole colour pipeline was built to avoid.
-/// The field is therefore mandatory, with no derived default offered: a pre-filled estimate would
-/// be accepted unread by most people, and it is wrong by 25–30% on exactly the deep, saturated
-/// colours someone is most likely to want to add.
+/// The LRV is required and no default is offered: a guessed one renders the right hue at the wrong
+/// lightness, which is the error the color pipeline exists to avoid.
 struct CustomColorForm: View {
 
     /// The colour being edited, or `nil` when adding.
@@ -28,8 +23,6 @@ struct CustomColorForm: View {
         self.store = store
         _name = State(initialValue: existing?.name ?? "")
         _code = State(initialValue: existing?.code ?? "")
-        // A mid-tone default: starting on white makes the preview look empty, and starting on a
-        // saturated colour suggests the picker is where the work happens.
         _hexText = State(initialValue: (existing?.hex ?? 0xC9C4BA).hexString)
         _lrvText = State(initialValue: existing.map { String(format: "%.1f", $0.lrv) } ?? "")
     }
@@ -101,11 +94,7 @@ struct CustomColorForm: View {
 
     // MARK: - Preview
 
-    /// The chip as it will appear in the swatch row, at the size it appears there.
-    ///
-    /// Showing the real size rather than a large block is the point: this is the thing the user
-    /// will have to recognise later in a row of chips, and a colour that is distinctive at 200pt
-    /// can be indistinguishable from its neighbour at 58.
+    /// The chip at the size it appears in the swatch row.
     private var preview: some View {
         HStack(spacing: 14) {
             RoundedRectangle(cornerRadius: 8)
@@ -138,11 +127,7 @@ struct CustomColorForm: View {
     private var trimmedCode: String { code.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var parsedHex: UInt32? { UInt32(hexString: hexText) }
 
-    /// The typed LRV, or nil if it is not a number in range.
-    ///
-    /// Rejects 0 as well as out-of-range values. An LRV of exactly 0 is a surface that reflects no
-    /// light at all, which no paint is, and it would render the wall pure black — much more likely
-    /// a half-finished entry than an intent.
+    /// The typed LRV, or nil if it is not a number in 0 < lrv <= 100.
     private var parsedLRV: Float? {
         guard let value = Float(lrvText.trimmingCharacters(in: .whitespaces)),
               value > 0, value <= 100 else { return nil }
@@ -156,8 +141,7 @@ struct CustomColorForm: View {
             && !store.isNameTaken(trimmedName, excluding: existing?.id)
     }
 
-    /// Reads and writes `hexText`, so the picker and the field are one value rather than two that
-    /// have to be kept in step.
+    /// Reads and writes `hexText`, so the picker and the field are one value rather than two.
     private var pickerBinding: Binding<Color> {
         Binding(
             get: { Color(hex: parsedHex ?? 0xC9C4BA) },
@@ -167,8 +151,7 @@ struct CustomColorForm: View {
 
     private func save() {
         guard let hex = parsedHex, let lrv = parsedLRV else { return }
-        // Editing keeps the original id, so a colour currently selected on the wall stays selected
-        // through the edit instead of being replaced by a stranger with the same name.
+        // Editing keeps the original id, so a colour selected on the wall stays selected.
         store.save(PaintColor(id: existing?.id ?? UUID().uuidString,
                               name: trimmedName,
                               code: trimmedCode,

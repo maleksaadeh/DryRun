@@ -1,34 +1,17 @@
 import SwiftUI
 
 /// The screen the app opens on, every launch.
-///
-/// It earns its place by doing two things before the camera starts. It sets the expectation that
-/// this is a *measurement* — the colour you see is the paint under your own light, not a tint laid
-/// over a photo — and it says the one thing people need to know to get a wall detected at all,
-/// which is that a blank expanse of drywall gives ARKit nothing to track and a corner or an outlet
-/// in frame fixes it. Both are much cheaper to say here than to discover in front of a wall.
-///
-/// It is also where camera permission gets requested, since `ARSession.run` is deferred until
-/// `onStart` fires. The system prompt then lands on a screen that has already explained why.
 struct WelcomeView: View {
 
-    /// Whether this iPhone has no LiDAR scanner, and the user should be told before they start.
+    /// Whether to warn that this iPhone has no LiDAR scanner.
     var warnsAboutLiDAR = false
 
     /// Called when Get Started is tapped. The AR session starts only after this.
     let onStart: () -> Void
 
-    /// Driven from `onAppear` rather than shown unconditionally, so the alert fires once per
-    /// launch. This screen is only ever built at cold launch — `RootView` replaces it with the
-    /// camera and never comes back — so once per appearance and once per open are the same thing.
     @State private var showingLiDARWarning = false
     @State private var showingHowItWorks = false
 
-    /// Colours in the hero fan, front to back.
-    ///
-    /// The offered palette itself rather than a decorative selection, so the welcome screen cannot
-    /// advertise a colour the picker does not have. ``PaintCatalog/featured`` already spans the
-    /// LRV range deliberately, which is the spread this wants anyway.
     private static let fan = PaintCatalog.featured
 
     var body: some View {
@@ -93,8 +76,6 @@ struct WelcomeView: View {
             .padding(.horizontal, 28)
             .padding(.bottom, 24)
         }
-        // Overlaid rather than placed in the stack so it pins to the corner regardless of how the
-        // content below reflows on a short screen.
         .overlay(alignment: .topTrailing) {
             Button { showingHowItWorks = true } label: {
                 Image(systemName: "questionmark")
@@ -128,14 +109,7 @@ struct WelcomeView: View {
 
     // MARK: - Pieces
 
-    /// Overlapping chips, fanned like a deck pulled part way open.
-    ///
-    /// Drawn back to front with a rotation and a rising offset, so the row reads as physical stock
-    /// rather than as a colour legend.
-    ///
-    /// Laid out from each chip's distance to the centre of the row rather than from its index, so
-    /// the fan stays symmetric whatever ``PaintCatalog/featured`` holds. `spread` is the only knob
-    /// worth touching: below about 30 the middle chips disappear behind their neighbours.
+    /// Overlapping chips, fanned like a part-opened deck.
     private var hero: some View {
         let centre = Double(Self.fan.count - 1) / 2
         let spread: Double = 36
@@ -181,12 +155,7 @@ struct WelcomeView: View {
     }
 }
 
-/// The ground both pre-camera screens sit on.
-///
-/// Deep neutral rather than pure black, with a warm bloom at the top. The bloom is doing real work
-/// on the welcome screen: it warms the chips it sits behind, which is a quiet preview of the thing
-/// the app does — a swatch is not a fixed appearance, it is a reflectance under some light. Pure
-/// black would render them as flat product shots.
+/// The ground both pre-camera screens sit on: deep neutral with a warm bloom at the top.
 struct AppBackground: View {
     var body: some View {
         LinearGradient(

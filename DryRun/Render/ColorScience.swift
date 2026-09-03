@@ -1,23 +1,15 @@
 import simd
 
-/// Colorimetry for rendering manufacturer paint colors under measured scene illuminants.
+/// Colorimetry for rendering paint colors under measured scene illuminants, in linear light
+/// throughout: sRGB hex plus LRV in, CIE XYZ and an illuminant adaptation between, sRGB out.
 ///
-/// The pipeline works in **linear light** throughout. Camera pixels arrive gamma-encoded in a
-/// device RGB space; paint colors are published as sRGB hex plus an LRV (Light Reflectance
-/// Value). Neither is directly usable for relighting, so everything is converted to CIE XYZ,
-/// adapted to the estimated scene illuminant, and only re-encoded at the final display step.
-///
-/// - Important: Every matrix here is row-major and expects **column vectors** (`M * v`).
-///   `simd_float3x3` initializers take *columns*, so each literal below is transposed relative
-///   to how the matrix is conventionally written.
+/// - Important: every matrix is written for column vectors (`M * v`), and `simd_float3x3` takes
+///   *columns*, so each literal below is transposed relative to the conventional form.
 enum ColorScience {
 
     // MARK: - Transfer functions
 
     /// Decodes an sRGB-encoded component to linear light.
-    ///
-    /// Uses the exact piecewise IEC 61966-2-1 curve rather than a 2.2 power approximation —
-    /// the linear toe matters for dark walls, which is precisely the case this app is built for.
     static func srgbToLinear(_ c: Float) -> Float {
         c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
     }
@@ -41,20 +33,13 @@ enum ColorScience {
     ))
 
     /// CIE XYZ to linear sRGB (D65) — the inverse of ``srgbToXYZ``.
-    ///
-    /// The working space is sRGB rather than Display P3 on purpose. ARKit's captured frames
-    /// arrive in Rec.709 primaries, so compositing them into a P3 target without converting
-    /// would desaturate the untouched camera passthrough. Architectural paint is low-chroma and
-    /// sits comfortably inside sRGB, so the gamut cost is near zero. Moving the whole pipeline
-    /// to P3 — including a Rec.709 to P3 step on the camera texture — is the correct upgrade
-    /// once saturated accent colours enter the catalogue.
     static let xyzToSRGB = simd_float3x3(columns: (
         SIMD3<Float>( 3.2404542, -0.9692660,  0.0556434),
         SIMD3<Float>(-1.5371385,  1.8760108, -0.2040259),
         SIMD3<Float>(-0.4985314,  0.0415560,  1.0572252)
     ))
 
-    /// CIE XYZ to linear Display P3 (D65). Retained for the P3 upgrade path described above.
+    /// CIE XYZ to linear Display P3 (D65). Unused; the pipeline works in sRGB.
     static let xyzToDisplayP3 = simd_float3x3(columns: (
         SIMD3<Float>( 2.4934969, -0.8294890,  0.0358458),
         SIMD3<Float>(-0.9313836,  1.7626641, -0.0761724),
@@ -64,12 +49,7 @@ enum ColorScience {
     // MARK: - Illuminant estimation
 
     /// Chromaticity of the Planckian radiator at `kelvin`, via the Kim et al. cubic fit.
-    ///
-    /// ARKit reports scene lighting as a correlated colour temperature, which is a point on
-    /// this locus. Valid over 1667K–25000K; inputs are clamped to that range.
-    ///
-    /// - Parameter kelvin: Correlated colour temperature.
-    /// - Returns: CIE 1931 `xy` chromaticity.
+    /// Valid over 1667K-25000K; inputs are clamped.
     static func planckianChromaticity(kelvin: Float) -> SIMD2<Float> {
         let t = min(max(kelvin, 1667), 25000)
         let t2 = t * t, t3 = t2 * t
@@ -117,16 +97,7 @@ enum ColorScience {
         SIMD3<Float>( 0.1599627,  0.0492912,  0.9684867)
     ))
 
-    /// Builds the XYZ→XYZ matrix adapting colours from `source` white to `destination` white.
-    ///
-    /// This is what lets a paint chip specified under D65 be rendered as it would actually
-    /// appear under 2700K incandescent — a lamp-lit room at night, which is when most people
-    /// end up looking at a wall and wondering.
-    ///
-    /// - Parameters:
-    ///   - source: XYZ white point the colour is currently relative to.
-    ///   - destination: XYZ white point to adapt into.
-    /// - Returns: A 3x3 adaptation matrix operating on XYZ column vectors.
+    /// Builds the XYZ->XYZ matrix adapting colours from `source` white to `destination` white.
     static func adaptation(from source: SIMD3<Float>, to destination: SIMD3<Float>) -> simd_float3x3 {
         let srcCone = bradford * source
         let dstCone = bradford * destination
