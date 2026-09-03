@@ -4,17 +4,6 @@ import ImageIO
 import UniformTypeIdentifiers
 
 // DryRun app icon.
-//
-// A room: wall above, white floor below, a couch against the wall. A phone held up in the middle,
-// running off the bottom edge so it reads as held rather than as a picture of a phone.
-//
-// The couch is the point. It is drawn twice — once in the room, once inside the screen — from the
-// same geometry at the same coordinates, so it runs straight through the phone uninterrupted. The
-// wall behind it does not: beige outside the screen, Powder Blue inside. A viewer reads "the wall
-// changed, the furniture did not", which is exactly what the app does and is not something a
-// phone-with-a-blue-rectangle can say.
-//
-// Laid out in top-left coordinates; the context is flipped once so the geometry reads as it looks.
 
 let S: CGFloat = 1024
 
@@ -49,31 +38,19 @@ func drawRoom(_ ctx: CGContext) {
     ctx.fill(CGRect(x: 0, y: floorY, width: S, height: S - floorY))
 }
 
-/// The couch, in absolute canvas coordinates.
-///
-/// Called twice with identical arguments — once for the room, once inside the screen clip. That
-/// they are the same call is what guarantees the two halves line up across the phone's edge; any
-/// offset here would break the illusion far more visibly than the same offset anywhere else.
+
 func drawCouch(_ ctx: CGContext) {
-    // Wide enough to emerge well clear of the phone on both sides, and run off the bottom edge
-    // like the phone does — stopping it short left the phone as two dark rails on bare white,
-    // which read as legs rather than as a handset held into frame.
+
     ctx.setFillColor(couchBody)
     ctx.addPath(roundedRect(CGRect(x: 130, y: 664, width: 764, height: 420), 34))
     ctx.fillPath()
 
-    // Back cushion, inset, lighter. Gives the slab enough form to read as furniture at size
-    // without adding detail that turns to mush.
     ctx.setFillColor(couchCushion)
     ctx.addPath(roundedRect(CGRect(x: 186, y: 688, width: 652, height: 128), 24))
     ctx.fillPath()
 }
 
-/// Viewfinder corner brackets, so the screen reads as a live camera rather than a swatch.
-///
-/// Framed to the whole screen, which is the whole point of them: they mark the bounds of what the
-/// camera sees. Bracketing only the wall would say the app paints a region of the frame, when what
-/// it actually does is look at everything and repaint just the wall.
+
 func drawBrackets(_ ctx: CGContext, in r: CGRect) {
     let arm: CGFloat = 62
     let weight: CGFloat = 11
