@@ -7,3 +7,13 @@ I added 3 default colors to choose from - but also added the ability for the use
 
 ## Shortfalls
 As I've worked on this app, I've learned that dark colors absorb IR light. So the app has difficulty picking up dark walls.
+
+## Demos
+
+<img width="1170" height="2532" alt="IMG_7985" src="https://github.com/user-attachments/assets/e0a56e82-10e1-4ba5-8413-f6c1fb66b563" />
+
+<img width="1170" height="2532" alt="IMG_7987" src="https://github.com/user-attachments/assets/18d8acd3-fa1c-413b-8177-2b051acdfdeb" />
+
+<img width="1170" height="2532" alt="IMG_7986" src="https://github.com/user-attachments/assets/68220702-1b18-4d4e-b276-218f3643eb64" />
+
+Link will expire 9/9/26: https://streamable.com/bzsj9s
