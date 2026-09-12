@@ -15,5 +15,5 @@ As I've worked on this app, I've learned that dark colors absorb IR light. So th
 <img width="1170" height="2532" alt="IMG_7987" src="https://github.com/user-attachments/assets/18d8acd3-fa1c-413b-8177-2b051acdfdeb" />
 
 <img width="1170" height="2532" alt="IMG_7986" src="https://github.com/user-attachments/assets/68220702-1b18-4d4e-b276-218f3643eb64" />
-
-Link will expire 9/9/26: https://streamable.com/bzsj9s
+## Video
+Link will expire 9/14/26: [https://streamable.com/bzsj9s](https://streamable.com/rfrjic)
