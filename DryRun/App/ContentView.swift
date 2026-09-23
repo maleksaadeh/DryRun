@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var isAddingColour = false
     @State private var editingColour: PaintColor?
     @State private var showsGallery = false
+    @State private var showsPaywall = false
     /// Bumped once per shutter press; the renderer captures one frame per distinct value.
     @State private var captureToken = 0
     /// True from the press until the still has been written, to keep the shutter from re-firing.
@@ -85,16 +86,18 @@ struct ContentView: View {
             sessionControls
 
             if let prompt {
-                Text(prompt)
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.horizontal, 60)
-                    .padding(.top, 14)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .transition(.opacity)
+                Group {
+                    if isPaintLocked {
+                        Button { showsPaywall = true } label: { capsule(prompt) }
+                            .buttonStyle(.plain)
+                    } else {
+                        capsule(prompt)
+                    }
+                }
+                .padding(.horizontal, 60)
+                .padding(.top, 14)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .transition(.opacity)
             }
 
             if let captureNote {
@@ -115,6 +118,9 @@ struct ContentView: View {
         .sheet(item: $editingColour) { colour in
             CustomColorForm(existing: colour, store: customColours)
         }
+        .sheet(isPresented: $showsPaywall) {
+            PaywallView(entitlements: entitlements)
+        }
         .onChange(of: customColours.colours) { _, colours in
             if paint.isCustom, !colours.contains(where: { $0.id == paint.id }) {
                 paint = PaintCatalog.default
@@ -132,11 +138,22 @@ struct ContentView: View {
             controller.start()
         }
         .onDisappear { controller.pause() }
+        // Warms the product ahead of the paywall so it opens with a price rather than a spinner.
+        .task { await entitlements.load() }
+    }
+
+    private func capsule(_ text: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: Capsule())
     }
 
     /// The one line of guidance on screen, or nothing once there is paint to look at.
     private var prompt: String? {
-        if isPaintLocked { return "Unlock custom colours to see this one on your wall." }
+        if isPaintLocked { return "Custom colours need DryRun Pro. Tap to unlock." }
         if let note = controller.trackingNote { return note }
         if controller.selectedWallID == nil { return controller.status }
         return nil
@@ -187,6 +204,20 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Reset zoom to 1x")
+            }
+
+            // Also the only way a reviewer with no custom colours can reach Restore Purchases.
+            if !entitlements.isUnlocked {
+                Button {
+                    showsPaywall = true
+                } label: {
+                    Image(systemName: "lock.open")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 40, height: 40)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("DryRun Pro")
             }
 
             if controller.selectedWallID != nil {
@@ -355,10 +386,12 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             if isPaintLocked {
-                Image(systemName: "lock.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel("Locked")
+                Button { showsPaywall = true } label: {
+                    Label("Unlock", systemImage: "lock.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
             }
             Spacer(minLength: 4)
             Text("LRV \(paint.lrv, specifier: "%.1f")")

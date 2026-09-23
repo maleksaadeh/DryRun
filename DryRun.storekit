@@ -1,0 +1,61 @@
+{
+  "identifier" : "8B1F0C42",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21771903",
+      "localizations" : [
+
+      ],
+      "name" : "DryRun Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "79.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6740312",
+          "introductoryOffer" : {
+            "internalID" : "3D0A7E11",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P3D"
+          },
+          "localizations" : [
+            {
+              "description" : "Unlimited custom colours, rendered under the room's own light.",
+              "displayName" : "DryRun Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.MAS.dryrunpaint.pro.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "DryRun Pro Annual",
+          "subscriptionGroupID" : "21771903",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
