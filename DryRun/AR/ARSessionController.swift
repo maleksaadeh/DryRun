@@ -173,6 +173,10 @@ final class ARSessionController: NSObject, ObservableObject {
                 walls.removeValue(forKey: plane.identifier)
                 continue
             }
+            // ARKit re-fits and re-tessellates on nearly every update. Reusing the geometry until
+            // the fit actually moves keeps the painted boundary still, and saves two buffer
+            // allocations per anchor per frame.
+            if let existing = walls[plane.identifier], existing.matches(plane) { continue }
             guard let geometry = WallGeometry(anchor: plane, device: device) else { continue }
             walls[plane.identifier] = geometry
         }
