@@ -18,4 +18,4 @@ As I've worked on this app, I've learned that dark colors absorb IR light. So th
 
 ## Video
 
-Link will expire 9/14/26: https://streamable.com/rfrjic
+Link will expire 10/17/26: https://streamable.com/3r5046
